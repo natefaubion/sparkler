@@ -76,7 +76,7 @@ DB.getResource('123', function {
 })
 ```
 
-If a case doesn't match a `TypeError('No match')` is thrown.
+If no case matches, a `TypeError('No match')` is thrown.
 
 Branch Optimization
 -------------------
@@ -197,7 +197,7 @@ var Email = {
     }
   },
 
-  // `unapplyObj` is for object-list destructuring.
+  // `unapplyObj` is for object-like destructuring.
   unapplyObj: function(x) {
     var m = Email.match(x);
     if (m) {
