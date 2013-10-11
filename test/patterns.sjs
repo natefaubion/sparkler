@@ -314,4 +314,17 @@ describe 'Case patterns' {
       ]
     }
   }
+
+  // Regressions
+  // -----------
+
+  it 'should preserve case order in lieu of grafting' {
+    function go {
+      case (*,     false, true ) => 1
+      case (false, true,  *    ) => 2
+      case (*,     *,     false) => 3
+      case (*,     *,     true ) => 4
+    }
+    test 'success' { go(false, true, false) === 2 }
+  }
 }

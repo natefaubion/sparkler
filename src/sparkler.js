@@ -673,7 +673,7 @@ function optimizeBranches(cases) {
 
   function graft(bs) {
     for (var i = 1; i < bs.length; i++) {
-      for (var j = 0; j < i; j++) {
+      for (var j = i - 1; j >= 0; j--) {
         if (bs[i].pattern === bs[j].pattern) {
           if (bs[i].branches) {
             if (!bs[j].branches) bs[j].branches = [];
@@ -687,7 +687,7 @@ function optimizeBranches(cases) {
           }
           bs.splice(i, 1);
           i--;
-        }
+        } else break;
       }
     }
     bs.forEach(function(b) {
