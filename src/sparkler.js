@@ -596,8 +596,8 @@ function joinPatterns(j, cs) {
   }).join(j);
 }
 
-// Simpile Compiler
-// ----------------
+// Simple Compiler
+// ---------------
 
 function compileSimple(cases) {
   // Collect all the identifier names so we can zip them up with the refs
