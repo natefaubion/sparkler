@@ -96,6 +96,34 @@ Let's say `MyExtractor` is really expensive. Since these two cases share the
 same root argument, they are grafted together. `MyExtractor` is only called
 once, even if the first case fails in its second argument.
 
+Backtracking
+------------
+
+Sparkler also has opt-in support for backtracking when branch optimization
+isn't enough. To turn it on, just insert `backtrack` at the front of your
+function body before any cases.
+
+```js
+function useBacktracking {
+  backtrack
+  case (MyExtractor(x), 1) => doThis()
+  case (Foo(x)        , 2) => doThat()
+  case (MyExtractor(x), 3) => doThisAndThat()
+}
+```
+
+The `MyExtractor` pattern in this example can't be grafted together because
+a different pattern separates them. With backtracking enabled, each unique
+pattern for a given argument position is guaranteed to only ever run once.
+
+Backtracking is currently opt-in because the generated code is rather verbose
+compared to the basic compiler. In the future, this could be decided
+automatically at compile time instead of with an explicit flag.
+
+__Note:__ simple patterns like booleans and number literals are not cached,
+since its more efficient just to run the comparison again than bother with the
+caching machinery.
+
 Argument Length
 ---------------
 

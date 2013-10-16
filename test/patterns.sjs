@@ -315,6 +315,29 @@ describe 'Case patterns' {
     }
   }
 
+  // Backtracking
+  // ------------
+
+  it 'should only call a pattern once with backtracking' {
+    var count = 0;
+    var Backtrack = {
+      unapply: function(x) {
+        count++;
+        return [x];
+      }
+    };
+
+    function go {
+      backtrack
+      case (Backtrack(1), 1) => 1
+      case ('foo'       , 2) => 2
+      case (Backtrack(1), 3) => 3
+    }
+
+    go(1, 3);
+    test 'backtrack' { count === 1 }
+  }
+
   // Regressions
   // -----------
 

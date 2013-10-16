@@ -3,10 +3,15 @@ macro $sparkler__compile {
     var ctx = #{ $ctx };
     var mac = #{ here };
     var fnName = #{ $name };
+    var body = #{ $body ... };
 
     {{ MACRO }}
 
-    return compile(parse(#{ $body ... }));
+    if (matchesToken({ type: T.Identifier, value: 'backtrack' }, body[0])) {
+      return compileBacktrack(parse(body.slice(1)));
+    } else {
+      return compileSimple(parse(body));
+    }
   }
 }
 
