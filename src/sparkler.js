@@ -596,6 +596,15 @@ function joinPatterns(j, cs) {
   }).join(j);
 }
 
+// Compiler
+// --------
+
+function compile(cases) {
+  return shouldCompileBacktrack(cases)
+    ? compileBacktrack(cases)
+    : compileSimple(cases);
+}
+
 // Simple Compiler
 // ---------------
 
@@ -1290,7 +1299,7 @@ function compileState(id, patts, env) {
   // a match has not been attempted. Otherwise, it will be an array. If the
   // array is empty, the match attempt failed. If the array has a length, it
   // succeeded and will be filled with `name` values.
-  if (shouldBacktrack(patts)) {
+  if (shouldStateBacktrack(patts)) {
     var backRef = makeRef();
     var nameLen = 0; // How many name refs were gathered.
 
@@ -1508,13 +1517,36 @@ function joinAlternates(alts) {
   }, []);
 }
 
-function shouldBacktrack(args) {
+function shouldStateBacktrack(args) {
   if (args.length === 1) return false;
-  var child = args[0].children[0];
-  var patt = child.pattern;
+  return shouldArgBacktrack(args[0]);
+}
+
+function shouldArgBacktrack(arg) {
+  var patt = arg.pattern;
+  var child = arg.children[0];
   if (patt === '$' || patt === '*' || patt === '...' ||
       child.type === 'literal' && !matchesToken(STRING, child.stx[0])) return false;
   return true;
+}
+
+function shouldCompileBacktrack(cases) {
+  var len = cases.reduce(function(acc, c) {
+    return c.args.children.length > acc ? c.args.children.length : acc;
+  }, 0);
+
+  for (var j = 0; j < len; j++) {
+    var patts = [];
+    for (var i = 0, c; c = cases[i]; i++) {
+      var arg = c.args.children[j];
+      if (arg && patts.indexOf(arg.pattern) > 0 && shouldArgBacktrack(arg)) {
+        console.log(arg);
+        return true;
+      }
+      patts.unshift(arg ? arg.pattern : null);
+    }
+  }
+  return false;
 }
 
 // Syntax Optimization
