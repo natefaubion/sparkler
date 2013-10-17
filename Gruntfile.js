@@ -8,34 +8,18 @@ module.exports = function(grunt) {
   });
 
   grunt.registerTask('build', function() {
-    var letstx = grunt.file.read('./src/letstx.js');
-    var macro  = grunt.file.read('./src/sparkler.js');
-    var wrap   = grunt.file.read('./src/macro-wrapper.js');
-
-    var lines = macro.split('\n');
-    for (var i = 0; i < lines.length; i++) {
-      var line = lines[i];
-      var comm = line.indexOf('//');
-      if (comm >= 0) {
-        lines[i] = line = line.slice(0, comm);
+    var macro = grunt.file.read('./src/wrapper.js');
+    var lines = mapFilter(macro.split('\n'), function(line) {
+      var fileName = line.match(/(\s*)\/\/=(.+)/);
+      if (fileName) {
+        var include = strip(grunt.file.read('./src/' + fileName[2].trim()));
+        return include.replace(/^/gm, fileName[1]);
+      } else {
+        return line;
       }
-      if (line.trim().length === 0) {
-        lines.splice(i, 1);
-        i--;
-      }
-    }
+    });
 
-    macro = '    ' + lines.join('\n    ');
-    lines = wrap.split('\n');
-
-    for (i = 0; i < lines.length; i++) {
-      if (lines[i].indexOf('{{ MACRO }}') >= 0) {
-        lines[i] = macro;
-      }
-    }
-
-    wrap = letstx + lines.join('\n');
-    grunt.file.write('./macros/index.js', wrap);
+    grunt.file.write('./macros/index.js', lines.join('\n'));
   });
 
   grunt.registerTask('build-test', function() {
@@ -59,3 +43,20 @@ module.exports = function(grunt) {
   grunt.registerTask('test', ['build', 'build-test', 'mochaTest']);
   grunt.loadNpmTasks('grunt-mocha-test');
 };
+
+function strip(src) {
+  return mapFilter(src.split('\n'), function(line) {
+    var comm = line.indexOf('//');
+    if (comm >= 0) line = line.slice(0, comm);
+    if (line.trim().length) return line;
+  }).join('\n');
+}
+
+function mapFilter(arr, fn) {
+  var res = [];
+  for (var i = 0, len = arr.length; i < len; i++) {
+    var item = fn(arr[i]);
+    if (item != null) res.push(item);
+  }
+  return res;
+}

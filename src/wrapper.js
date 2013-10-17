@@ -1,17 +1,14 @@
+//=letstx.js
+
 macro $sparkler__compile {
   case { $$mac $ctx $name ( $body ... ) } => {
     var ctx = #{ $ctx };
     var mac = #{ here };
     var fnName = #{ $name };
-    var body = #{ $body ... };
 
-    {{ MACRO }}
+    //=sparkler.js
 
-    if (matchesToken({ type: T.Identifier, value: 'backtrack' }, body[0])) {
-      return compileBacktrack(parse(body.slice(1)));
-    } else {
-      return compileSimple(parse(body));
-    }
+    return compile(parse(#{ $body ... }));
   }
 }
 
