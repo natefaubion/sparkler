@@ -328,7 +328,6 @@ describe 'Case patterns' {
     };
 
     function go {
-      backtrack
       case (Backtrack(1), 1) => 1
       case ('foo'       , 2) => 2
       case (Backtrack(1), 3) => 3

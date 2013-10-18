@@ -5,18 +5,15 @@ let letstx = macro {
     var val = #{ $val };
     var arg = #{ $($rhs) };
     var punc = #{ $punc };
-
     if (punc[0].token.type !== parser.Token.Punctuator ||
         punc[0].token.value !== '...') {
       throw new SyntaxError('Unexpected token: ' + punc[0].token.value +
                             ' (expected ...)');
     }
-
     if (id[0].token.value[0] !== '$') {
       throw new SyntaxError('Syntax identifiers must start with $: ' + 
                             id[0].token.value);
     }
-
     return [
       makeIdent('match', mac),
       makePunc('.'),
@@ -40,12 +37,10 @@ let letstx = macro {
     var id  = #{ $id };
     var val = #{ $val };
     var arg = #{ $($rhs) };
-
     if (id[0].token.value[0] !== '$') {
       throw new SyntaxError('Syntax identifiers must start with $: ' + 
                             id[0].token.value);
     }
-
     return [
       makeIdent('match', mac),
       makePunc('.'),
@@ -59,13 +54,180 @@ let letstx = macro {
     ];
   }
 }
+
 macro $sparkler__compile {
   case { $$mac $ctx $name ( $body ... ) } => {
     var ctx = #{ $ctx };
     var mac = #{ here };
     var fnName = #{ $name };
-    var body = #{ $body ... };
 
+    function syntaxError(tok, info) {
+      var name = fnName[0].token.value === 'anonymous'
+        ? 'anonymous function'
+        : '`' + fnName[0].token.value + '`';
+      var err;
+      if (!tok) {
+        err = '(sparkler macro) ' + info;
+      } else if (!tok.length) {
+        err = '(sparkler macro) Unexpected end of input in ' + name;
+        if (info) err += ' (' + info + ')';
+      } else {
+        var str = _.isString(tok) 
+          ? tok 
+          : tok[0].token.type === T.Delimiter
+            ? tok[0].token.value[0]
+            : tok[0].token.value;
+        err = '(sparkler macro) Unexpected token in ' + name;
+        err += ': ' + str;
+        if (info) err += ' (' + info + ')';
+      }
+      throw new SyntaxError(err);
+    }
+    var refId = 0;
+    function makeRef(rhs, ctx) {
+      if (!ctx) ctx = mac;
+      var name = makeIdent('r' + (refId++), ctx);
+      var stx = makeAssign(name, rhs, ctx);
+      return {
+        name: [name],
+        stx: stx
+      };
+    }
+    function makeAssign(name, rhs, ctx) {
+      if (!ctx) ctx = mac;
+      return _.flatten([
+        makeKeyword('var', ctx), name, rhs ? [makePunc('=', ctx), rhs] : [], makePunc(';', ctx)
+      ]);
+    }
+    function makeArgument(i, env, ctx) {
+      if (env.argNames.length) {
+        return { name: [env.argNames[i]] };
+      }
+      var index = i < 0
+        ? [makeIdent('arguments'), makePunc('.'), makeIdent('length'), 
+           makePunc('-'), makeValue(Math.abs(i))]
+        : [makeValue(i)];
+      return makeRef([makeIdent('arguments'), makeDelim('[]', index, ctx)]);
+    }
+    function indexOfRest(patt) {
+      for (var i = 0; i < patt.children.length; i++) {
+        if (patt.children[i].type === 'rest') return i;
+      }
+      return -1;
+    }
+    function joinPatterns(j, cs) {
+      return cs.map(function(c) { return c.pattern }).join(j);
+    }
+    function joinRefs(refs) {
+      if (!refs.length) return [];
+      refs = _.flatten(intercalate(makePunc(','), refs.map(function(r) {
+        return r.stx ? r.stx.slice(1, -1) : r.slice(1, -1);
+      })));
+      return [makeKeyword('var')].concat(refs, makePunc(';'));
+    }
+    function joinAlternates(alts) {
+      if (alts.length === 1) return alts[0][2].token.inner;
+      return alts.reduce(function(acc, alt, i) {
+        if (i === alts.length - 1) {
+          alt = [makeKeyword('else')].concat(alt[2]);
+        } else if (i > 0) {
+          alt = [makeKeyword('else')].concat(alt);
+        }
+        return acc.concat(alt);
+      }, []);
+    }
+    function findIdents(patt) {
+      return patt.reduce(function(a, p) {
+        if (p.type === 'identifier' || p.type === 'binder') a = a.concat(p);
+        if (p.children) a = a.concat(findIdents(p.children));
+        return a;
+      }, []);
+    }
+    function replaceIdents(guard, names) {
+      names = names.reduce(function(acc, n) {
+        acc[n[0]] = n[1].name ? n[1].name[0] : n[1].stx[0];
+        return acc;
+      }, {});
+      function traverse(arr) {
+        for (var i = 0, s; s = arr[i]; i++) {
+          if (s.token.type === T.Delimiter) traverse(s.token.inner);
+          if (s.token.type === T.Identifier && 
+              names.hasOwnProperty(s.token.value)) {
+            arr.splice(i, 1, names[s.token.value]);
+          }
+        }
+        return arr;
+      }
+      return traverse(guard);
+    }
+    function wrapBlock(toks) {
+      if (matchesToken(BRACES, toks[0])) {
+        return toks;
+      }
+      return [makeDelim('{}', toks)];
+    }
+    function intercalate(x, a) {
+      var arr = [];
+      for (var i = 0; i < a.length; i++) {
+        if (i > 0) arr.push(x);
+        arr.push(a[i]);
+      }
+      return arr;
+    }
+    function shouldStateBacktrack(args) {
+      if (args.length === 1) return false;
+      return shouldArgBacktrack(args[0]);
+    }
+    function shouldArgBacktrack(arg) {
+      var patt = arg.pattern;
+      var child = arg.children[0];
+      if (patt === '$' || patt === '*' || patt === '...' ||
+          child.type === 'literal' && !matchesToken(STRING, child.stx[0])) return false;
+      return true;
+    }
+    function shouldCompileBacktrack(cases) {
+      var len = cases.reduce(function(acc, c) {
+        return c.args.children.length > acc ? c.args.children.length : acc;
+      }, 0);
+      for (var j = 0; j < len; j++) {
+        var patts = [];
+        for (var i = 0, c; c = cases[i]; i++) {
+          var arg = c.args.children[j];
+          if (arg && patts.indexOf(arg.pattern) > 0 && shouldArgBacktrack(arg)) {
+            return true;
+          }
+          patts.unshift(arg ? arg.pattern : null);
+        }
+      }
+      return false;
+    }
+    var T        = parser.Token;
+    var EQ       = { type: T.Punctuator, value: '=' };
+    var GT       = { type: T.Punctuator, value: '>' };
+    var REST     = { type: T.Punctuator, value: '...' };
+    var COLON    = { type: T.Punctuator, value: ':' };
+    var AT       = { type: T.Punctuator, value: '@' };
+    var COMMA    = { type: T.Punctuator, value: ',' };
+    var PERIOD   = { type: T.Punctuator, value: '.' };
+    var WILDCARD = { type: T.Punctuator, value: '*' };
+    var SCOLON   = { type: T.Punctuator, value: ';' };
+    var UNDEF    = { type: T.Identifier, value: 'undefined' };
+    var VOID     = { type: T.Keyword,    value: 'void' };
+    var CASE     = { type: T.Keyword,    value: 'case' };
+    var VAR      = { type: T.Keyword,    value: 'var' };
+    var IF       = { type: T.Keyword,    value: 'if' };
+    var ELSE     = { type: T.Keyword,    value: 'else' };
+    var FOR      = { type: T.Keyword,    value: 'for' };
+    var RETURN   = { type: T.Keyword,    value: 'return' };
+    var CONTINUE = { type: T.Keyword,    value: 'continue' };
+    var BRACKETS = { type: T.Delimiter,  value: '[]' };
+    var PARENS   = { type: T.Delimiter,  value: '()' };
+    var BRACES   = { type: T.Delimiter,  value: '{}' };
+    var IDENT    = { type: T.Identifier };
+    var BOOL     = { type: T.BooleanLiteral };
+    var NULL     = { type: T.NullLiteral };
+    var STRING   = { type: T.StringLiteral };
+    var NUMBER   = { type: T.NumericLiteral };
     function input(stx) {
       return {
         buffer: stx,
@@ -95,60 +257,13 @@ macro $sparkler__compile {
         return stx.splice(0, len || 1);
       }
       function takeAPeek() {
-        var res = this.peek.apply(this, arguments);
+        var res = peek.apply(null, arguments);
         if (res) return take(res.length);
       }
       function put(toks) {
         stx.unshift.apply(stx, toks);
       }
     }
-    function environment(vars) {
-      var env = _.extend({
-        set: set,
-        addName: addName,
-        addHead: addHead
-      }, vars);
-      return env;
-      function set(mod) {
-        return environment(_.extend({}, vars, mod));
-      }
-      function addName(stx) {
-        return set({
-          names: vars.names.concat({ stx: stx })
-        });
-      }
-      function addHead(name, stx) {
-        if (!vars.head[name]) vars.head[name] = stx;
-        return env;
-      }
-    }
-    var T        = parser.Token;
-    var EQ       = { type: T.Punctuator, value: '=' };
-    var GT       = { type: T.Punctuator, value: '>' };
-    var REST     = { type: T.Punctuator, value: '...' };
-    var COLON    = { type: T.Punctuator, value: ':' };
-    var AT       = { type: T.Punctuator, value: '@' };
-    var COMMA    = { type: T.Punctuator, value: ',' };
-    var PERIOD   = { type: T.Punctuator, value: '.' };
-    var WILDCARD = { type: T.Punctuator, value: '*' };
-    var SCOLON   = { type: T.Punctuator, value: ';' };
-    var UNDEF    = { type: T.Identifier, value: 'undefined' };
-    var VOID     = { type: T.Keyword,    value: 'void' };
-    var CASE     = { type: T.Keyword,    value: 'case' };
-    var VAR      = { type: T.Keyword,    value: 'var' };
-    var IF       = { type: T.Keyword,    value: 'if' };
-    var ELSE     = { type: T.Keyword,    value: 'else' };
-    var FOR      = { type: T.Keyword,    value: 'for' };
-    var RETURN   = { type: T.Keyword,    value: 'return' };
-    var CONTINUE = { type: T.Keyword,    value: 'continue' };
-    var BRACKETS = { type: T.Delimiter,  value: '[]' };
-    var PARENS   = { type: T.Delimiter,  value: '()' };
-    var BRACES   = { type: T.Delimiter,  value: '{}' };
-    var IDENT    = { type: T.Identifier };
-    var BOOL     = { type: T.BooleanLiteral };
-    var NULL     = { type: T.NullLiteral };
-    var STRING   = { type: T.StringLiteral };
-    var NUMBER   = { type: T.NumericLiteral };
     function parse(stx) {
       var inp = input(stx);
       var cases = [];
@@ -389,28 +504,6 @@ macro $sparkler__compile {
         return true;
       }
     }
-    function syntaxError(tok, info) {
-      var name = fnName[0].token.value === 'anonymous'
-        ? 'anonymous function'
-        : '`' + fnName[0].token.value + '`';
-      var err;
-      if (!tok) {
-        err = '(sparkler macro) ' + info;
-      } else if (!tok.length) {
-        err = '(sparkler macro) Unexpected end of input in ' + name;
-        if (info) err += ' (' + info + ')';
-      } else {
-        var str = _.isString(tok) 
-          ? tok 
-          : tok[0].token.type === T.Delimiter
-            ? tok[0].token.value[0]
-            : tok[0].token.value;
-        err = '(sparkler macro) Unexpected token in ' + name;
-        err += ': ' + str;
-        if (info) err += ' (' + info + ')';
-      }
-      throw new SyntaxError(err);
-    }
     function $wildcard() {
       return { 
         type: 'wildcard',
@@ -538,90 +631,40 @@ macro $sparkler__compile {
         children: []
       };
     }
-    function joinPatterns(j, cs) {
-      return cs.map(function(c) {
-        return c.pattern;
-      }).join(j);
-    }
-    function compileSimple(cases) {
-      cases.forEach(function(c) {
-        c.names = findIdents(c.args.children).map(function(i) {
-          return i.name;
-        });
-      });
-      var argCount = cases.reduce(function(acc, c) {
-        if (!c.args.pattern || c.args.pattern === '*') return acc;
-        var count = c.args.children.length;
-        var hasRest = _.any(c.args.children, function(a) {
-          return a.children[0].type === 'rest';
-        });
-        if (hasRest) count -= 1;
-        return count > acc ? count : acc;
-      }, 0);
-      var argNames = [];
-      while (argCount--) {
-        argNames.unshift(makeIdent('a' + argCount, mac));
+    function environment(vars) {
+      var env = _.extend({
+        set: set,
+        addName: addName,
+        addHead: addHead
+      }, vars);
+      return env;
+      function set(mod) {
+        return environment(_.extend({}, vars, mod));
       }
-      var env = environment({
-        cases: cases,
-        head: {},
-        names: [],
-        argNames: argNames,
-        level: 0
-      });
-      var branches = optimizeBranches(cases);
-      var body = compileBranches(branches, env);
-      var err  = #{ throw new TypeError('No match') };
-      var head = joinRefs(_.values(env.head));
-      letstx $name ... = fnName[0].token.value === 'anonymous' ? [] : fnName;
-      letstx $args ... = intercalate(makePunc(','), argNames);
-      letstx $code ... = optimizeSyntax(head.concat(body).concat(err));
-      return #{
-        function $name ... ($args ...) {
-          $code ...
-        }
+      function addName(stx) {
+        return set({
+          names: vars.names.concat({ stx: stx })
+        });
+      }
+      function addHead(name, stx) {
+        if (!vars.head[name]) vars.head[name] = stx;
+        return env;
       }
     }
-    function optimizeBranches(cases) {
-      var branches = cases.map(function(c) {
-        var patts = c.args.children;
-        var last = patts[patts.length - 1];
-        if (c.guard.length) {
-          last.guards = [{ guard: c.guard, body: c.body, names: c.names }];
-        } else {
-          last.body = c.body;
-          last.names = c.names;
-        }
-        return patts.reduceRight(function(acc, patt) {
-          patt.branches = [acc];
-          return patt;
-        });
-      });
-      function graft(bs) {
-        for (var i = 1; i < bs.length; i++) {
-          for (var j = i - 1; j >= 0; j--) {
-            if (bs[i].pattern === bs[j].pattern) {
-              if (bs[i].branches) {
-                if (!bs[j].branches) bs[j].branches = [];
-                bs[j].branches = bs[j].branches.concat(bs[i].branches);
-              } else if (bs[i].guards) {
-                if (!bs[j].guards) bs[j].guards = [];
-                bs[j].guards = bs[j].guards.concat(bs[i].guards);
-              } else {
-                bs[j].body = bs[i].body;
-                bs[j].names = bs[i].names;
-              }
-              bs.splice(i, 1);
-              i--;
-            } else break;
-          }
-        }
-        bs.forEach(function(b) {
-          if (b.branches) graft(b.branches);
-        });
-        return bs;
-      }
-      return graft(branches);
+    var TO_STR_REF = makeRef(#{ Object.prototype.toString });
+    var natives = {
+      'Boolean'    : makeRef(#{ '[object Boolean]' }),
+      'Number'     : makeRef(#{ '[object Number]' }),
+      'String'     : makeRef(#{ '[object String]' }),
+      'RegExp'     : makeRef(#{ '[object RegExp]' }),
+      'Date'       : makeRef(#{ '[object Date]' }),
+      'Array'      : makeRef(#{ '[object Array]' }),
+      'Object'     : makeRef(#{ '[object Object]' }),
+      'Function'   : makeRef(#{ '[object Function]' }),
+      'Undefined'  : makeRef(#{ '[object Undefined]' }),
+      'Null'       : makeRef(#{ '[object Null]' }),
+      'Math'       : makeRef(#{ '[object Math]' }),
+      'Arguments'  : makeRef(#{ '[object Arguments]' }),
     }
     var compilers = {
       'argument'   : compileArgument,
@@ -639,39 +682,10 @@ macro $sparkler__compile {
       'array'      : compileArray,
       'rest'       : compileRest,
     };
-    function compileBranches(branches, env) {
-      return branches.reduce(function(acc, b) {
-        return acc.concat(compileBranch(b, env));
-      }, []);
-    }
-    function compileBranch(patt, env) {
-      return compilePattern(patt, env, function (env2) {
-        var branchBody, guardBody, pattBody, names;
-        if (patt.branches) {
-          branchBody = compileBranches(patt.branches, env2);
-        }
-        if (patt.guards) {
-          guardBody = patt.guards.reduceRight(function(rest, g) {
-            var names = _.zip(g.names, env2.names);
-            var body = joinRefs(names.reduceRight(nameReducer, [])).concat(g.body);
-            var guard = [makeKeyword('if'), makeDelim('()', replaceIdents(g.guard, names)), 
-              makeDelim('{}', body)];
-            return guard.concat(rest);
-          }, []);
-        }
-        if (patt.body) {
-          names = _.zip(patt.names, env2.names);
-          pattBody = joinRefs(names.reduceRight(nameReducer, []))
-            .concat(wrapBlock(patt.body));
-        } 
-        return (branchBody  || [])
-          .concat(guardBody || [])
-          .concat(pattBody  || []);
-      });
-      function nameReducer(bod, n) {
-        var id = makeIdent(n[0], ctx);
-        return [makeAssign(id, n[1].stx)].concat(bod);
-      }
+    function compile(cases) {
+      return shouldCompileBacktrack(cases)
+        ? compileBacktrack(cases)
+        : compileSimple(cases);
     }
     function compilePattern(patt, env, cont) {
       return compilers[patt.type](patt, env, cont);
@@ -970,6 +984,120 @@ macro $sparkler__compile {
         }
       }
     }
+    function compileSimple(cases) {
+      cases.forEach(function(c) {
+        c.names = findIdents(c.args.children).map(function(i) {
+          return i.name;
+        });
+      });
+      var argCount = cases.reduce(function(acc, c) {
+        if (!c.args.pattern || c.args.pattern === '*') return acc;
+        var count = c.args.children.length;
+        var hasRest = _.any(c.args.children, function(a) {
+          return a.children[0].type === 'rest';
+        });
+        if (hasRest) count -= 1;
+        return count > acc ? count : acc;
+      }, 0);
+      var argNames = [];
+      while (argCount--) {
+        argNames.unshift(makeIdent('a' + argCount, mac));
+      }
+      var env = environment({
+        cases: cases,
+        head: {},
+        names: [],
+        argNames: argNames,
+        level: 0
+      });
+      var branches = optimizeBranches(cases);
+      var body = compileBranches(branches, env);
+      var err  = #{ throw new TypeError('No match') };
+      var head = joinRefs(_.values(env.head));
+      letstx $name ... = fnName[0].token.value === 'anonymous' ? [] : fnName;
+      letstx $args ... = intercalate(makePunc(','), argNames);
+      letstx $code ... = optimizeSyntax(head.concat(body).concat(err));
+      return #{
+        function $name ... ($args ...) {
+          $code ...
+        }
+      }
+    }
+    function optimizeBranches(cases) {
+      var branches = cases.map(function(c) {
+        var patts = c.args.children;
+        var last = patts[patts.length - 1];
+        if (c.guard.length) {
+          last.guards = [{ guard: c.guard, body: c.body, names: c.names }];
+        } else {
+          last.body = c.body;
+          last.names = c.names;
+        }
+        return patts.reduceRight(function(acc, patt) {
+          patt.branches = [acc];
+          return patt;
+        });
+      });
+      function graft(bs) {
+        for (var i = 1; i < bs.length; i++) {
+          for (var j = i - 1; j >= 0; j--) {
+            if (bs[i].pattern === bs[j].pattern) {
+              if (bs[i].branches) {
+                if (!bs[j].branches) bs[j].branches = [];
+                bs[j].branches = bs[j].branches.concat(bs[i].branches);
+              } else if (bs[i].guards) {
+                if (!bs[j].guards) bs[j].guards = [];
+                bs[j].guards = bs[j].guards.concat(bs[i].guards);
+              } else {
+                bs[j].body = bs[i].body;
+                bs[j].names = bs[i].names;
+              }
+              bs.splice(i, 1);
+              i--;
+            } else break;
+          }
+        }
+        bs.forEach(function(b) {
+          if (b.branches) graft(b.branches);
+        });
+        return bs;
+      }
+      return graft(branches);
+    }
+    function compileBranches(branches, env) {
+      return branches.reduce(function(acc, b) {
+        return acc.concat(compileBranch(b, env));
+      }, []);
+    }
+    function compileBranch(patt, env) {
+      return compilePattern(patt, env, function (env2) {
+        var branchBody, guardBody, pattBody, names;
+        if (patt.branches) {
+          branchBody = compileBranches(patt.branches, env2);
+        }
+        if (patt.guards) {
+          guardBody = patt.guards.reduceRight(function(rest, g) {
+            var names = _.zip(g.names, env2.names);
+            var body = joinRefs(names.reduceRight(nameReducer, [])).concat(g.body);
+            var guard = [makeKeyword('if'), makeDelim('()', replaceIdents(g.guard, names)), 
+              makeDelim('{}', body)];
+            return guard.concat(rest);
+          }, []);
+        }
+        if (patt.body) {
+          names = _.zip(patt.names, env2.names);
+          pattBody = joinRefs(names.reduceRight(nameReducer, []))
+            .concat(wrapBlock(patt.body));
+        } 
+        return (branchBody  || [])
+          .concat(guardBody || [])
+          .concat(pattBody  || []);
+      });
+      function nameReducer(bod, n) {
+        var id = makeIdent(n[0], ctx);
+        return [makeAssign(id, n[1].stx)].concat(bod);
+      }
+    }
     function compileBacktrack(cases) {
       var argLen  = 0;
       var nameLen = 0;
@@ -1086,7 +1214,7 @@ macro $sparkler__compile {
         level: patts[0].level,
         names: []
       });
-      if (shouldBacktrack(patts)) {
+      if (shouldStateBacktrack(patts)) {
         var backRef = makeRef();
         var nameLen = 0; 
         env.backRefs.push(backRef);
@@ -1163,117 +1291,6 @@ macro $sparkler__compile {
         }
       }
     }
-    function indexOfRest(patt) {
-      for (var i = 0; i < patt.children.length; i++) {
-        if (patt.children[i].type === 'rest') return i;
-      }
-      return -1;
-    }
-    var refId = 0;
-    function makeRef(rhs, ctx) {
-      if (!ctx) ctx = mac;
-      var name = makeIdent('r' + (refId++), ctx);
-      var stx = makeAssign(name, rhs, ctx);
-      return {
-        name: [name],
-        stx: stx
-      };
-    }
-    var TO_STR_REF = makeRef(#{ Object.prototype.toString });
-    var natives = {
-      'Boolean'   : makeRef(#{ '[object Boolean]' }),
-      'Number'    : makeRef(#{ '[object Number]' }),
-      'String'    : makeRef(#{ '[object String]' }),
-      'RegExp'    : makeRef(#{ '[object RegExp]' }),
-      'Date'      : makeRef(#{ '[object Date]' }),
-      'Array'     : makeRef(#{ '[object Array]' }),
-      'Object'    : makeRef(#{ '[object Object]' }),
-      'Function'  : makeRef(#{ '[object Function]' }),
-      'Undefined' : makeRef(#{ '[object Undefined]' }),
-      'Null'      : makeRef(#{ '[object Null]' }),
-      'Math'      : makeRef(#{ '[object Math]' }),
-      'Arguments' : makeRef(#{ '[object Arguments]' }),
-    }
-    function makeAssign(name, rhs, ctx) {
-      if (!ctx) ctx = mac;
-      return _.flatten([
-        makeKeyword('var', ctx), name, rhs ? [makePunc('=', ctx), rhs] : [], makePunc(';', ctx)
-      ]);
-    }
-    function makeArgument(i, env, ctx) {
-      if (env.argNames.length) {
-        return { name: [env.argNames[i]] };
-      }
-      var index = i < 0
-        ? [makeIdent('arguments'), makePunc('.'), makeIdent('length'), 
-           makePunc('-'), makeValue(Math.abs(i))]
-        : [makeValue(i)];
-      return makeRef([makeIdent('arguments'), makeDelim('[]', index, ctx)]);
-    }
-    function joinRefs(refs) {
-      if (!refs.length) return [];
-      refs = _.flatten(intercalate(makePunc(','), refs.map(function(r) {
-        return r.stx ? r.stx.slice(1, -1) : r.slice(1, -1);
-      })));
-      return [makeKeyword('var')].concat(refs, makePunc(';'));
-    }
-    function findIdents(patt) {
-      return patt.reduce(function(a, p) {
-        if (p.type === 'identifier' || p.type === 'binder') a = a.concat(p);
-        if (p.children) a = a.concat(findIdents(p.children));
-        return a;
-      }, []);
-    }
-    function replaceIdents(guard, names) {
-      names = names.reduce(function(acc, n) {
-        acc[n[0]] = n[1].name ? n[1].name[0] : n[1].stx[0];
-        return acc;
-      }, {});
-      function traverse(arr) {
-        for (var i = 0, s; s = arr[i]; i++) {
-          if (s.token.type === T.Delimiter) traverse(s.token.inner);
-          if (s.token.type === T.Identifier && 
-              names.hasOwnProperty(s.token.value)) {
-            arr.splice(i, 1, names[s.token.value]);
-          }
-        }
-        return arr;
-      }
-      return traverse(guard);
-    }
-    function wrapBlock(toks) {
-      if (matchesToken(BRACES, toks[0])) {
-        return toks;
-      }
-      return [makeDelim('{}', toks)];
-    }
-    function intercalate(x, a) {
-      var arr = [];
-      for (var i = 0; i < a.length; i++) {
-        if (i > 0) arr.push(x);
-        arr.push(a[i]);
-      }
-      return arr;
-    }
-    function joinAlternates(alts) {
-      if (alts.length === 1) return alts[0][2].token.inner;
-      return alts.reduce(function(acc, alt, i) {
-        if (i === alts.length - 1) {
-          alt = [makeKeyword('else')].concat(alt[2]);
-        } else if (i > 0) {
-          alt = [makeKeyword('else')].concat(alt);
-        }
-        return acc.concat(alt);
-      }, []);
-    }
-    function shouldBacktrack(args) {
-      if (args.length === 1) return false;
-      var child = args[0].children[0];
-      var patt = child.pattern;
-      if (patt === '$' || patt === '*' || patt === '...' ||
-          child.type === 'literal' && !matchesToken(STRING, child.stx[0])) return false;
-      return true;
-    }
     function optimizeSyntax(stx) {
       var inp = input(stx);
       var res = [];
@@ -1345,11 +1362,7 @@ macro $sparkler__compile {
       return stx;
     }
 
-    if (matchesToken({ type: T.Identifier, value: 'backtrack' }, body[0])) {
-      return compileBacktrack(parse(body.slice(1)));
-    } else {
-      return compileSimple(parse(body));
-    }
+    return compile(parse(#{ $body ... }));
   }
 }
 

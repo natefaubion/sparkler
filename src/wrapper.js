@@ -1,4 +1,4 @@
-//=letstx.js
+//= letstx.js
 
 macro $sparkler__compile {
   case { $$mac $ctx $name ( $body ... ) } => {
@@ -6,7 +6,12 @@ macro $sparkler__compile {
     var mac = #{ here };
     var fnName = #{ $name };
 
-    //=sparkler.js
+    //= utils.js
+    //= parser.js
+    //= compiler.js
+    //= compiler-simple.js
+    //= compiler-backtrack.js
+    //= optimize.js
 
     return compile(parse(#{ $body ... }));
   }
