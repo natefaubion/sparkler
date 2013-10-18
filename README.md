@@ -99,13 +99,11 @@ once, even if the first case fails in its second argument.
 Backtracking
 ------------
 
-Sparkler also has opt-in support for backtracking when branch optimization
-isn't enough. To turn it on, just insert `backtrack` at the front of your
-function body before any cases.
+If your cases aren't conducisve to branch optimization, Sparkler will switch
+over to the backtracking compiler if it thinks it will help.
 
 ```js
 function useBacktracking {
-  backtrack
   case (MyExtractor(x), 1) => doThis()
   case (Foo(x)        , 2) => doThat()
   case (MyExtractor(x), 3) => doThisAndThat()
@@ -113,12 +111,12 @@ function useBacktracking {
 ```
 
 The `MyExtractor` pattern in this example can't be grafted together because
-a different pattern separates them. With backtracking enabled, each unique
-pattern for a given argument position is guaranteed to only ever run once.
+a different pattern separates them. With backtracking, each unique pattern for
+a given argument position is guaranteed to only ever run once.
 
-Backtracking is currently opt-in because the generated code is rather verbose
-compared to the basic compiler. In the future, this could be decided
-automatically at compile time instead of with an explicit flag.
+Sparkler only uses the backtracking compiler when it has to because it can
+be verbose compared to the simple compiler. If you can write your cases in a 
+way that doesn't require backtracking, you'll be much happier.
 
 __Note:__ simple patterns like booleans and number literals are not cached,
 since its more efficient just to run the comparison again than bother with the
