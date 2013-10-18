@@ -82,10 +82,12 @@ function parse(stx) {
     var args = parseArgumentList(input(list));
 
     // Cases can have the same arguments but different guards.
-    if (patts.hasOwnProperty(args.pattern) && !guard.length) {
-      syntaxError(null, 'Duplicate argument case: (' + args.pattern + ')');
-    } else {
-      patts[args.pattern] = true;
+    if (!guard.length) {
+      if (patts.hasOwnProperty(args.pattern)) {
+        syntaxError(null, 'Duplicate argument case: (' + args.pattern + ')');
+      } else {
+        patts[args.pattern] = true;
+      }
     }
 
     cases.push({

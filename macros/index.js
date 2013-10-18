@@ -273,10 +273,12 @@ macro $sparkler__compile {
         var guard = scanGuard(inp);
         var body = scanCaseBody(inp);
         var args = parseArgumentList(input(list));
-        if (patts.hasOwnProperty(args.pattern) && !guard.length) {
-          syntaxError(null, 'Duplicate argument case: (' + args.pattern + ')');
-        } else {
-          patts[args.pattern] = true;
+        if (!guard.length) {
+          if (patts.hasOwnProperty(args.pattern)) {
+            syntaxError(null, 'Duplicate argument case: (' + args.pattern + ')');
+          } else {
+            patts[args.pattern] = true;
+          }
         }
         cases.push({
           args: args,
