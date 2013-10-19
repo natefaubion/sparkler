@@ -1,3 +1,7 @@
+## 0.1.3 (2013-10-19)
+
+* Automatic backtracking detection
+
 ## 0.1.2 (2013-10-15)
 
 * Backtracking support
