@@ -99,7 +99,7 @@ once, even if the first case fails in its second argument.
 Backtracking
 ------------
 
-If your cases aren't conducisve to branch optimization, Sparkler will switch
+If your cases aren't conducive to branch optimization, Sparkler will switch
 over to the backtracking compiler if it thinks it will help.
 
 ```js
@@ -114,9 +114,9 @@ The `MyExtractor` pattern in this example can't be grafted together because
 a different pattern separates them. With backtracking, each unique pattern for
 a given argument position is guaranteed to only ever run once.
 
-Sparkler only uses the backtracking compiler when it has to because it can
-be verbose compared to the simple compiler. If you can write your cases in a 
-way that doesn't require backtracking, you'll be much happier.
+Sparkler only uses the backtracking compiler when it must, because it can be
+verbose compared to the simple compiler. If you can write your cases in a way
+that doesn't require backtracking, you'll be much happier.
 
 __Note:__ simple patterns like booleans and number literals are not cached,
 since its more efficient just to run the comparison again than bother with the
