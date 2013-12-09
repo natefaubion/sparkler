@@ -291,17 +291,22 @@ macro $sparkler__compile {
         if (inp.peek(COMMA)) syntaxError(inp.take(), null, 'multiple parameters require parens');
         res.push(inp.take()[0]);
       }
-      syntaxError(res[res.length - 1], 'Case body required');
+      if (res.length) syntaxError(res[res.length - 1], 'Case body required');
+      else syntaxError(tok, 'Argument list required');
     }
     function scanGuard(inp) {
-      var res = inp.takeAPeek(IF);
-      if (!res) return [];
-      res = [];
+      var tok = inp.takeAPeek(IF);
+      if (!tok) return [];
+      var res = [];
       while (inp.buffer.length) {
-        if (inp.peek(ARROW)) return res;
+        if (inp.peek(ARROW)) {
+          if (!res.length) syntaxError(tok, 'Guard required');
+          return res;
+        }
         res.push(inp.take()[0]);
       }
-      syntaxError(res[res.length - 1], 'Case body required');
+      if (res.length) syntaxError(res[res.length - 1], 'Case body required');
+      else syntaxError(tok, 'Guard required');
     }
     function scanCaseBody(inp) {
       inp.take(1);
