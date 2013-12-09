@@ -427,7 +427,7 @@ function compileRest(patt, env, cont) {
   // on the body.
   if (child.type === 'identifier') {
     letstx $rrefs ... = joinRefs(restRefs);
-    letstx $loop ... = loop
+    letstx $loop ... = loop;
     return #{
       $rrefs ...
       $loop ...
@@ -435,7 +435,7 @@ function compileRest(patt, env, cont) {
     }
   } else {
     letstx $rrefs ... = joinRefs([okRef].concat(restRefs));
-    letstx $loop ... = loop
+    letstx $loop ... = loop;
     return #{
       $rrefs ...
       $loop ...
