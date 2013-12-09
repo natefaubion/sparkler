@@ -189,7 +189,7 @@ describe 'Case patterns' {
         return Math.floor(x).toString().split('').map(parseFloat);
       }
     },
-    unapplyObj: function(x) {
+    unapplyObject: function(x) {
       var ds = Digits.unapply(x);
       if (ds) {
         return {
@@ -235,7 +235,7 @@ describe 'Case patterns' {
     test 'failure' { go(1001) =!= TypeError }
   }
 
-  it 'should call unapplyObj for object-like destructuring' {
+  it 'should call unapplyObject for object-like destructuring' {
     function go {
       case Digits{ hundreds: h, tens: t, ones: o } => [h, t, o]
     }

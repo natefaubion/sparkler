@@ -39,7 +39,7 @@ Date.unapply = function(date) {
   }
 };
 
-Date.unapplyObj = function(date) {
+Date.unapplyObject = function(date) {
   if (Object.prototype.toString.call(date) === '[object Date]') {
     return {
       year: date.getFullYear(),
@@ -69,7 +69,7 @@ RegExp.unapply = function(reg) {
   }
 };
 
-RegExp.unapplyObj = function(reg) {
+RegExp.unapplyObject = function(reg) {
   if (Object.prototype.toString.call(reg) === '[object RegExp]') {
     return {
       pattern: reg.source,

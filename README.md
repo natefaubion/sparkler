@@ -223,8 +223,8 @@ var Email = {
     }
   },
 
-  // `unapplyObj` is for object-like destructuring.
-  unapplyObj: function(x) {
+  // `unapplyObject` is for object-like destructuring.
+  unapplyObject: function(x) {
     var m = Email.match(x);
     if (m) {
       return {
@@ -240,7 +240,7 @@ Now we can use it in case arguments:
 
 ```js
 function doStuffWithEmails {
-  // Calls `unapplyObj`
+  // Calls `unapplyObject`
   case Email{ domain: 'foo.com' } => ...
   
   // Calls 'unapply'

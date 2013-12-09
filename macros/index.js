@@ -758,7 +758,7 @@ macro $sparkler__compile {
         letstx $obj = objRef.name;
         letstx $ref = env.ref.name;
         return #{
-          var $obj = $cls ... .unapplyObj($ref);
+          var $obj = $cls ... .unapplyObject($ref);
           $bod ...
         }
       }
