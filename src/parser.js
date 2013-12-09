@@ -344,9 +344,11 @@ function commaSeparated(parser, inp, cb) {
     res = parser(inp);
     if (res && !cb || res && cb(res, inp)) {
       all.push(res);
-      inp.takeAPeek(COMMA);
+      if (!inp.takeAPeek(COMMA) && inp.buffer.length) {
+        syntaxError(inp.take(), null, 'maybe you meant ,');
+      }
     } else if (!res) {
-      syntaxError(inp.take(), null, 'maybe you meant ,');
+      syntaxError(inp.take());
     }
   }
   return all;
