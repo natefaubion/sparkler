@@ -32,3 +32,5 @@ let function = macro {
     return #{ function }
   }
 }
+
+export function

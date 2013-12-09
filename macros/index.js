@@ -61,27 +61,10 @@ macro $sparkler__compile {
     var mac = #{ here };
     var fnName = #{ $name };
 
-    function syntaxError(tok, info) {
-      var name = fnName[0].token.value === 'anonymous'
-        ? 'anonymous function'
-        : '`' + fnName[0].token.value + '`';
-      var err;
-      if (!tok) {
-        err = '(sparkler macro) ' + info;
-      } else if (!tok.length) {
-        err = '(sparkler macro) Unexpected end of input in ' + name;
-        if (info) err += ' (' + info + ')';
-      } else {
-        var str = _.isString(tok) 
-          ? tok 
-          : tok[0].token.type === T.Delimiter
-            ? tok[0].token.value[0]
-            : tok[0].token.value;
-        err = '(sparkler macro) Unexpected token in ' + name;
-        err += ': ' + str;
-        if (info) err += ' (' + info + ')';
-      }
-      throw new SyntaxError(err);
+    function syntaxError(tok, err, info) {
+      if (!err) err = 'Unexpected token';
+      if (info) err += ' (' + info + ')';
+      throwSyntaxError('sparkler', err, tok);
     }
     var refId = 0;
     function makeRef(rhs, ctx) {
@@ -203,7 +186,7 @@ macro $sparkler__compile {
     }
     var T        = parser.Token;
     var EQ       = { type: T.Punctuator, value: '=' };
-    var GT       = { type: T.Punctuator, value: '>' };
+    var ARROW    = { type: T.Punctuator, value: '=>' };
     var REST     = { type: T.Punctuator, value: '...' };
     var COLON    = { type: T.Punctuator, value: ':' };
     var AT       = { type: T.Punctuator, value: '@' };
@@ -270,12 +253,13 @@ macro $sparkler__compile {
       var patts = {};
       while (inp.buffer.length) {
         var list = scanArgumentList(inp);
+        var first = list[0]; 
         var guard = scanGuard(inp);
         var body = scanCaseBody(inp);
         var args = parseArgumentList(input(list));
         if (!guard.length) {
           if (patts.hasOwnProperty(args.pattern)) {
-            syntaxError(null, 'Duplicate argument case: (' + args.pattern + ')');
+            syntaxError(first, 'Duplicate argument case: (' + args.pattern + ')');
           } else {
             patts[args.pattern] = true;
           }
@@ -293,40 +277,40 @@ macro $sparkler__compile {
     }
     function scanArgumentList(inp) {
       var tok = inp.takeAPeek(CASE);
-      if (!tok) syntaxError(inp.take(), 'expected case');
+      if (!tok) syntaxError(inp.take(), null, 'expected case');
       var res = inp.takeAPeek(PARENS);
       if (res) {
-        if (inp.peek(IF) || inp.peek(EQ, GT)) return res[0].expose().token.inner;
-        if (inp.peek(EQ)) syntaxError(inp.take(), 'maybe you meant =>');
+        if (inp.peek(IF) || inp.peek(ARROW)) return res[0].expose().token.inner;
+        if (inp.peek(EQ)) syntaxError(inp.take(), null, 'maybe you meant =>');
         throw syntaxError(inp.take());
       }
       res = [];
       while (inp.buffer.length) {
-        if (inp.peek(IF) || inp.peek(EQ, GT)) return res;
-        if (inp.peek(EQ)) syntaxError(inp.take(), 'maybe you meant =>');
-        if (inp.peek(COMMA)) syntaxError(inp.take(), 'multiple parameters require parens');
+        if (inp.peek(IF) || inp.peek(ARROW)) return res;
+        if (inp.peek(EQ)) syntaxError(inp.take(), null, 'maybe you meant =>');
+        if (inp.peek(COMMA)) syntaxError(inp.take(), null, 'multiple parameters require parens');
         res.push(inp.take()[0]);
       }
-      syntaxError([], 'case body required');
+      syntaxError(res[res.length - 1], 'Case body required');
     }
     function scanGuard(inp) {
       var res = inp.takeAPeek(IF);
       if (!res) return [];
       res = [];
       while (inp.buffer.length) {
-        if (inp.peek(EQ, GT)) return res;
+        if (inp.peek(ARROW)) return res;
         res.push(inp.take()[0]);
       }
-      syntaxError([], 'case body required');
+      syntaxError(res[res.length - 1], 'Case body required');
     }
     function scanCaseBody(inp) {
-      inp.take(2);
+      inp.take(1);
       var res = inp.takeAPeek(BRACES);
       if (res) {
         if (inp.peek(CASE) || !inp.buffer.length) {
           return forceReturn(res[0].expose().token.inner);
         }
-        syntaxError(inp.take(), 'maybe you meant case');
+        syntaxError(inp.take(), null, 'maybe you meant case');
       }
       res = [];
       while (inp.buffer.length) {
@@ -388,7 +372,7 @@ macro $sparkler__compile {
     }
     function parseRest(inp) {
       var res = inp.takeAPeek(REST);
-      if (res) return $rest(parsePattern(inp) || $wildcard());
+      if (res) return $rest(res, parsePattern(inp) || $wildcard());
     }
     function parseWildcard(inp) {
       var res = inp.takeAPeek(WILDCARD);
@@ -467,7 +451,7 @@ macro $sparkler__compile {
         if (inp.takeAPeek(COLON)) {
           var patt = parsePattern(inp);
           if (patt) return $keyValue(key, patt);
-          syntaxError(inp.take(), 'not a pattern');
+          syntaxError(inp.take(), null, 'not a pattern');
         }
         return $key(key);
       }
@@ -477,7 +461,7 @@ macro $sparkler__compile {
       if (res) {
         var patt = parsePattern(inp);
         if (patt) return $binder([res[0]], patt);
-        syntaxError(inp.take(), 'not a pattern');
+        syntaxError(inp.take(), null, 'not a pattern');
       }
     }
     function parseIdentifier(inp) {
@@ -492,7 +476,7 @@ macro $sparkler__compile {
           all.push(res);
           inp.takeAPeek(COMMA);
         } else if (!res) {
-          syntaxError(inp.take(), 'maybe you meant ,');
+          syntaxError(inp.take(), null, 'maybe you meant ,');
         }
       }
       return all;
@@ -501,7 +485,7 @@ macro $sparkler__compile {
       var count = 0;
       return function(res, inp) {
         if (res.type === 'rest' && count++) {
-          syntaxError('...', 'multiple ...s are not allowed');
+          syntaxError(res.stx, 'Multiple ...s are not allowed');
         }
         return true;
       }
@@ -541,8 +525,9 @@ macro $sparkler__compile {
     }
     function $arguments(args) {
       args.forEach(function(x, i) {
-        if (x.pattern.indexOf('...') === 0 && i !== args.length - 1)
-          syntaxError('...', 'rest arguments are only allowed at the end')
+        if (x.pattern.indexOf('...') === 0 && i !== args.length - 1) {
+          syntaxError(x.children[0].stx, 'Rest arguments are only allowed at the end');
+        }
       });
       return {
         type: 'arguments',
@@ -557,11 +542,12 @@ macro $sparkler__compile {
         children: [patt]
       };
     }
-    function $rest(patt) {
+    function $rest(stx, patt) {
       return {
         type: 'rest',
         pattern: '...' + patt.pattern,
-        children: [patt]
+        children: [patt],
+        stx: stx
       };
     }
     function $array(items) {
@@ -970,7 +956,7 @@ macro $sparkler__compile {
       };
       if (child.type === 'identifier') {
         letstx $rrefs ... = joinRefs(restRefs);
-        letstx $loop ... = loop
+        letstx $loop ... = loop;
         return #{
           $rrefs ...
           $loop ...
@@ -978,7 +964,7 @@ macro $sparkler__compile {
         }
       } else {
         letstx $rrefs ... = joinRefs([okRef].concat(restRefs));
-        letstx $loop ... = loop
+        letstx $loop ... = loop;
         return #{
           $rrefs ...
           $loop ...
@@ -1383,3 +1369,5 @@ let function = macro {
     return #{ function }
   }
 }
+
+export function

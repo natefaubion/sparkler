@@ -23,12 +23,15 @@ module.exports = function(grunt) {
   });
 
   grunt.registerTask('build-test', function() {
-    grunt.file.write('./test/patterns.js', compileFile('./test/patterns.sjs', true));
-    grunt.file.write('./test/extend.js', compileFile('./test/extend.sjs', true));
+    var path = require('path');
+    var files = ['./test/patterns.sjs', './test/extend.sjs'];
+    files.forEach(function(f) {
+      grunt.file.write(f.replace('.sjs', '.js'), compileFile(f, true));
+    });
   });
 
   grunt.registerTask('compile', function(fileName) {
-    console.log(compileFile(fileName));
+    grunt.log.write(compileFile(fileName));
   });
 
   function compileFile(fileName, isTest) {
@@ -36,7 +39,10 @@ module.exports = function(grunt) {
     var test  = isTest ? grunt.file.read('./test/macros.sjs') : '';
     var file  = grunt.file.read(fileName);
     var sweet = require('sweet.js');
-    return sweet.compile([macro, test, file].join('\n'));
+
+    return sweet.compile(test + file, {
+      macros: macro
+    }).code;
   }
 
   grunt.registerTask('default', ['build']);

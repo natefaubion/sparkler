@@ -22,7 +22,6 @@
   "devDependencies": {
     "grunt": "~0.4.1",
     "sweet.js": "~0.2.4",
-    "mocha": "~1.13.0",
     "chai": "~1.8.0",
     "grunt-mocha-test": "~0.7.0"
   }

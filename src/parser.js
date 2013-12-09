@@ -3,7 +3,7 @@
 
 var T        = parser.Token;
 var EQ       = { type: T.Punctuator, value: '=' };
-var GT       = { type: T.Punctuator, value: '>' };
+var ARROW    = { type: T.Punctuator, value: '=>' };
 var REST     = { type: T.Punctuator, value: '...' };
 var COLON    = { type: T.Punctuator, value: ':' };
 var AT       = { type: T.Punctuator, value: '@' };
@@ -77,6 +77,7 @@ function parse(stx) {
   var patts = {};
   while (inp.buffer.length) {
     var list = scanArgumentList(inp);
+    var first = list[0]; // Keep around in case of error.
     var guard = scanGuard(inp);
     var body = scanCaseBody(inp);
     var args = parseArgumentList(input(list));
@@ -84,7 +85,7 @@ function parse(stx) {
     // Cases can have the same arguments but different guards.
     if (!guard.length) {
       if (patts.hasOwnProperty(args.pattern)) {
-        syntaxError(null, 'Duplicate argument case: (' + args.pattern + ')');
+        syntaxError(first, 'Duplicate argument case: (' + args.pattern + ')');
       } else {
         patts[args.pattern] = true;
       }
@@ -106,23 +107,23 @@ function parse(stx) {
 
 function scanArgumentList(inp) {
   var tok = inp.takeAPeek(CASE);
-  if (!tok) syntaxError(inp.take(), 'expected case');
+  if (!tok) syntaxError(inp.take(), null, 'expected case');
 
   var res = inp.takeAPeek(PARENS);
   if (res) {
-    if (inp.peek(IF) || inp.peek(EQ, GT)) return res[0].expose().token.inner;
-    if (inp.peek(EQ)) syntaxError(inp.take(), 'maybe you meant =>');
+    if (inp.peek(IF) || inp.peek(ARROW)) return res[0].expose().token.inner;
+    if (inp.peek(EQ)) syntaxError(inp.take(), null, 'maybe you meant =>');
     throw syntaxError(inp.take());
   }
 
   res = [];
   while (inp.buffer.length) {
-    if (inp.peek(IF) || inp.peek(EQ, GT)) return res;
-    if (inp.peek(EQ)) syntaxError(inp.take(), 'maybe you meant =>');
-    if (inp.peek(COMMA)) syntaxError(inp.take(), 'multiple parameters require parens');
+    if (inp.peek(IF) || inp.peek(ARROW)) return res;
+    if (inp.peek(EQ)) syntaxError(inp.take(), null, 'maybe you meant =>');
+    if (inp.peek(COMMA)) syntaxError(inp.take(), null, 'multiple parameters require parens');
     res.push(inp.take()[0]);
   }
-  syntaxError([], 'case body required');
+  syntaxError(res[res.length - 1], 'Case body required');
 }
 
 function scanGuard(inp) {
@@ -131,14 +132,14 @@ function scanGuard(inp) {
 
   res = [];
   while (inp.buffer.length) {
-    if (inp.peek(EQ, GT)) return res;
+    if (inp.peek(ARROW)) return res;
     res.push(inp.take()[0]);
   }
-  syntaxError([], 'case body required');
+  syntaxError(res[res.length - 1], 'Case body required');
 }
 
 function scanCaseBody(inp) {
-  inp.take(2);
+  inp.take(1);
   var res = inp.takeAPeek(BRACES);
   if (res) {
     if (inp.peek(CASE) || !inp.buffer.length) {
@@ -146,7 +147,7 @@ function scanCaseBody(inp) {
       // their context and vars won't get renamed/resolved correctly.
       return forceReturn(res[0].expose().token.inner);
     }
-    syntaxError(inp.take(), 'maybe you meant case');
+    syntaxError(inp.take(), null, 'maybe you meant case');
   }
 
   res = [];
@@ -218,7 +219,7 @@ function parsePattern(inp) {
 
 function parseRest(inp) {
   var res = inp.takeAPeek(REST);
-  if (res) return $rest(parsePattern(inp) || $wildcard());
+  if (res) return $rest(res, parsePattern(inp) || $wildcard());
 }
 
 function parseWildcard(inp) {
@@ -311,7 +312,7 @@ function parseObjectPattern(inp) {
     if (inp.takeAPeek(COLON)) {
       var patt = parsePattern(inp);
       if (patt) return $keyValue(key, patt);
-      syntaxError(inp.take(), 'not a pattern');
+      syntaxError(inp.take(), null, 'not a pattern');
     }
 
     return $key(key);
@@ -323,7 +324,7 @@ function parseBinder(inp) {
   if (res) {
     var patt = parsePattern(inp);
     if (patt) return $binder([res[0]], patt);
-    syntaxError(inp.take(), 'not a pattern');
+    syntaxError(inp.take(), null, 'not a pattern');
   }
 }
 
@@ -340,7 +341,7 @@ function commaSeparated(parser, inp, cb) {
       all.push(res);
       inp.takeAPeek(COMMA);
     } else if (!res) {
-      syntaxError(inp.take(), 'maybe you meant ,');
+      syntaxError(inp.take(), null, 'maybe you meant ,');
     }
   }
   return all;
@@ -350,7 +351,7 @@ function multiRestCallback() {
   var count = 0;
   return function(res, inp) {
     if (res.type === 'rest' && count++) {
-      syntaxError('...', 'multiple ...s are not allowed');
+      syntaxError(res.stx, 'Multiple ...s are not allowed');
     }
     return true;
   }
@@ -403,8 +404,9 @@ function $arguments(args) {
   // Since argument length isn't strict, rest arguments are only allowed at the
   // trailing end of the argument list.
   args.forEach(function(x, i) {
-    if (x.pattern.indexOf('...') === 0 && i !== args.length - 1)
-      syntaxError('...', 'rest arguments are only allowed at the end')
+    if (x.pattern.indexOf('...') === 0 && i !== args.length - 1) {
+      syntaxError(x.children[0].stx, 'Rest arguments are only allowed at the end');
+    }
   });
   return {
     type: 'arguments',
@@ -421,11 +423,12 @@ function $argument(patt) {
   };
 }
 
-function $rest(patt) {
+function $rest(stx, patt) {
   return {
     type: 'rest',
     pattern: '...' + patt.pattern,
-    children: [patt]
+    children: [patt],
+    stx: stx
   };
 }
 

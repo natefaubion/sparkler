@@ -1,28 +1,7 @@
-function syntaxError(tok, info) {
-  var name = fnName[0].token.value === 'anonymous'
-    ? 'anonymous function'
-    : '`' + fnName[0].token.value + '`';
-
-  var err;
-
-  if (!tok) {
-    err = '(sparkler macro) ' + info;
-  } else if (!tok.length) {
-    err = '(sparkler macro) Unexpected end of input in ' + name;
-    if (info) err += ' (' + info + ')';
-  } else {
-    var str = _.isString(tok) 
-      ? tok 
-      : tok[0].token.type === T.Delimiter
-        ? tok[0].token.value[0]
-        : tok[0].token.value;
-
-    err = '(sparkler macro) Unexpected token in ' + name;
-    err += ': ' + str;
-    if (info) err += ' (' + info + ')';
-  }
-
-  throw new SyntaxError(err);
+function syntaxError(tok, err, info) {
+  if (!err) err = 'Unexpected token';
+  if (info) err += ' (' + info + ')';
+  throwSyntaxError('sparkler', err, tok);
 }
 
 var refId = 0;
