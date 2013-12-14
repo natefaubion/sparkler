@@ -1,11 +1,10 @@
-//= letstx.js
-
 macro $sparkler__compile {
   case { $$mac $ctx $name ( $body ... ) } => {
     var ctx = #{ $ctx };
     var mac = #{ here };
     var fnName = #{ $name };
 
+    //= letstx.js
     //= utils.js
     //= parser.js
     //= compiler.js
