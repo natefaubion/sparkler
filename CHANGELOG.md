@@ -1,3 +1,7 @@
+## 0.1.5 (2013-12-13)
+
+* Fix `letstx` scope so as not to interfere with new builtin `letstx`
+
 ## 0.1.4 (2013-12-9)
 
 * Update for sweet.js 0.3.x
