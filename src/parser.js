@@ -29,26 +29,31 @@ var NULL     = { type: T.NullLiteral };
 var STRING   = { type: T.StringLiteral };
 var NUMBER   = { type: T.NumericLiteral };
 
-// For consuming syntax arrays. Note that this will exhaust the source.
+// For consuming syntax arrays.
 function input(stx) {
-  return {
+  var pos = 0;
+  var inp = {
+    length: stx.length,
     buffer: stx,
     peek: peek,
     take: take,
     takeAPeek: takeAPeek,
-    put: put
+    back: back,
+    rest: rest
   };
+
+  return inp;
 
   function peek() {
     if (arguments.length === 0) {
-      return [stx[0]];
+      return [stx[pos]];
     }
     if (typeof arguments[0] === 'number') {
-      if (stx.length < arguments[0]) return;
-      return stx.slice(0, arguments[0]);
+      if (inp.length < arguments[0]) return;
+      return stx.slice(pos, pos + arguments[0]);
     }
     var res = [];
-    for (var i = 0, j = 0, t, a, m; i < arguments.length; i++) {
+    for (var i = 0, j = pos, t, a, m; i < arguments.length; i++) {
       a = arguments[i];
       t = stx[j++];
       if (!matchesToken(a, t)) return;
@@ -58,7 +63,10 @@ function input(stx) {
   }
 
   function take(len) {
-    return stx.splice(0, len || 1);
+    var res = stx.slice(pos, pos + (len || 1));
+    pos += len || 1;
+    inp.length -= len || 1;
+    return res;
   }
 
   function takeAPeek() {
@@ -66,8 +74,13 @@ function input(stx) {
     if (res) return take(res.length);
   }
 
-  function put(toks) {
-    stx.unshift.apply(stx, toks);
+  function back(len) {
+    pos -= len || 1;
+    inp.length += len || 1;
+  }
+
+  function rest() {
+    return stx.slice(pos);
   }
 }
 
@@ -75,7 +88,7 @@ function parse(stx) {
   var inp = input(stx);
   var cases = [];
   var patts = {};
-  while (inp.buffer.length) {
+  while (inp.length) {
     var list = scanArgumentList(inp);
     var first = list[0]; // Keep around in case of error.
     var guard = scanGuard(inp);
@@ -117,7 +130,7 @@ function scanArgumentList(inp) {
   }
 
   res = [];
-  while (inp.buffer.length) {
+  while (inp.length) {
     if (inp.peek(IF) || inp.peek(ARROW)) return res;
     if (inp.peek(EQ)) syntaxError(inp.take(), null, 'maybe you meant =>');
     if (inp.peek(COMMA)) syntaxError(inp.take(), null, 'multiple parameters require parens');
@@ -132,7 +145,7 @@ function scanGuard(inp) {
   if (!tok) return [];
 
   var res = [];
-  while (inp.buffer.length) {
+  while (inp.length) {
     if (inp.peek(ARROW)) {
       if (!res.length) syntaxError(tok, 'Guard required');
       return res;
@@ -147,7 +160,7 @@ function scanCaseBody(inp) {
   inp.take(1);
   var res = inp.takeAPeek(BRACES);
   if (res) {
-    if (inp.peek(CASE) || !inp.buffer.length) {
+    if (inp.peek(CASE) || !inp.length) {
       // We need to expose the block, otherwise all the inner tokens will lose
       // their context and vars won't get renamed/resolved correctly.
       return forceReturn(res[0].expose().token.inner);
@@ -156,7 +169,7 @@ function scanCaseBody(inp) {
   }
 
   res = [];
-  while (inp.buffer.length) {
+  while (inp.length) {
     if (inp.peek(CASE)) break;
     res.push(inp.take(1)[0]);
   }
@@ -183,7 +196,7 @@ function forceReturn(stx) {
   var needsReturn = true;
   var inp = input(stx);
   var res = [], toks;
-  while (inp.buffer.length) {
+  while (inp.length) {
     if (toks = inp.takeAPeek({ type: T.Keyword }, PARENS, RETURN)) {
       res = res.concat(toks);
     } else if (toks = inp.takeAPeek(RETURN)) {
@@ -198,7 +211,7 @@ function forceReturn(stx) {
 }
 
 function parseArgumentList(inp) {
-  return inp.buffer.length
+  return inp.length
     ? $arguments(parseRestPatterns(inp).map($argument))
     : $arguments([$unit()]);
 }
@@ -273,7 +286,7 @@ function parseExtractor(inp) {
       var ext = parseUnapply(inp) || parseObject(inp);
       return $extractor(stx.reverse(), ext);
     } else {
-      inp.put(stx.reverse());
+      inp.back(stx.length);
     }
   }
 }
@@ -340,11 +353,11 @@ function parseIdentifier(inp) {
 
 function commaSeparated(parser, inp, cb) {
   var all = [], res;
-  while (inp.buffer.length) {
+  while (inp.length) {
     res = parser(inp);
     if (res && !cb || res && cb(res, inp)) {
       all.push(res);
-      if (!inp.takeAPeek(COMMA) && inp.buffer.length) {
+      if (!inp.takeAPeek(COMMA) && inp.length) {
         syntaxError(inp.take(), null, 'maybe you meant ,');
       }
     } else if (!res) {

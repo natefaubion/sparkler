@@ -211,23 +211,27 @@ macro $sparkler__compile {
     var STRING   = { type: T.StringLiteral };
     var NUMBER   = { type: T.NumericLiteral };
     function input(stx) {
-      return {
+      var pos = 0;
+      var inp = {
+        length: stx.length,
         buffer: stx,
         peek: peek,
         take: take,
         takeAPeek: takeAPeek,
-        put: put
+        back: back,
+        rest: rest
       };
+      return inp;
       function peek() {
         if (arguments.length === 0) {
-          return [stx[0]];
+          return [stx[pos]];
         }
         if (typeof arguments[0] === 'number') {
-          if (stx.length < arguments[0]) return;
-          return stx.slice(0, arguments[0]);
+          if (inp.length < arguments[0]) return;
+          return stx.slice(pos, pos + arguments[0]);
         }
         var res = [];
-        for (var i = 0, j = 0, t, a, m; i < arguments.length; i++) {
+        for (var i = 0, j = pos, t, a, m; i < arguments.length; i++) {
           a = arguments[i];
           t = stx[j++];
           if (!matchesToken(a, t)) return;
@@ -236,21 +240,28 @@ macro $sparkler__compile {
         return res;
       }
       function take(len) {
-        return stx.splice(0, len || 1);
+        var res = stx.slice(pos, pos + (len || 1));
+        pos += len || 1;
+        inp.length -= len || 1;
+        return res;
       }
       function takeAPeek() {
         var res = peek.apply(null, arguments);
         if (res) return take(res.length);
       }
-      function put(toks) {
-        stx.unshift.apply(stx, toks);
+      function back(len) {
+        pos -= len || 1;
+        inp.length += len || 1;
+      }
+      function rest() {
+        return stx.slice(pos);
       }
     }
     function parse(stx) {
       var inp = input(stx);
       var cases = [];
       var patts = {};
-      while (inp.buffer.length) {
+      while (inp.length) {
         var list = scanArgumentList(inp);
         var first = list[0]; 
         var guard = scanGuard(inp);
@@ -284,7 +295,7 @@ macro $sparkler__compile {
         throw syntaxError(inp.take());
       }
       res = [];
-      while (inp.buffer.length) {
+      while (inp.length) {
         if (inp.peek(IF) || inp.peek(ARROW)) return res;
         if (inp.peek(EQ)) syntaxError(inp.take(), null, 'maybe you meant =>');
         if (inp.peek(COMMA)) syntaxError(inp.take(), null, 'multiple parameters require parens');
@@ -297,7 +308,7 @@ macro $sparkler__compile {
       var tok = inp.takeAPeek(IF);
       if (!tok) return [];
       var res = [];
-      while (inp.buffer.length) {
+      while (inp.length) {
         if (inp.peek(ARROW)) {
           if (!res.length) syntaxError(tok, 'Guard required');
           return res;
@@ -311,13 +322,13 @@ macro $sparkler__compile {
       inp.take(1);
       var res = inp.takeAPeek(BRACES);
       if (res) {
-        if (inp.peek(CASE) || !inp.buffer.length) {
+        if (inp.peek(CASE) || !inp.length) {
           return forceReturn(res[0].expose().token.inner);
         }
         syntaxError(inp.take(), null, 'maybe you meant case');
       }
       res = [];
-      while (inp.buffer.length) {
+      while (inp.length) {
         if (inp.peek(CASE)) break;
         res.push(inp.take(1)[0]);
       }
@@ -340,7 +351,7 @@ macro $sparkler__compile {
       var needsReturn = true;
       var inp = input(stx);
       var res = [], toks;
-      while (inp.buffer.length) {
+      while (inp.length) {
         if (toks = inp.takeAPeek({ type: T.Keyword }, PARENS, RETURN)) {
           res = res.concat(toks);
         } else if (toks = inp.takeAPeek(RETURN)) {
@@ -354,7 +365,7 @@ macro $sparkler__compile {
       return res;
     }
     function parseArgumentList(inp) {
-      return inp.buffer.length
+      return inp.length
         ? $arguments(parseRestPatterns(inp).map($argument))
         : $arguments([$unit()]);
     }
@@ -418,7 +429,7 @@ macro $sparkler__compile {
           var ext = parseUnapply(inp) || parseObject(inp);
           return $extractor(stx.reverse(), ext);
         } else {
-          inp.put(stx.reverse());
+          inp.back(stx.length);
         }
       }
     }
@@ -474,11 +485,11 @@ macro $sparkler__compile {
     }
     function commaSeparated(parser, inp, cb) {
       var all = [], res;
-      while (inp.buffer.length) {
+      while (inp.length) {
         res = parser(inp);
         if (res && !cb || res && cb(res, inp)) {
           all.push(res);
-          if (!inp.takeAPeek(COMMA) && inp.buffer.length) {
+          if (!inp.takeAPeek(COMMA) && inp.length) {
             syntaxError(inp.take(), null, 'maybe you meant ,');
           }
         } else if (!res) {
@@ -1289,7 +1300,7 @@ macro $sparkler__compile {
       var inp = input(stx);
       var res = [];
       var toks, opt;
-      while (inp.buffer.length) {
+      while (inp.length) {
         if (inp.peek()[0].userCode) {
           res.push(inp.take()[0]);
         } else if (toks = inp.takeAPeek({ type: T.Keyword }, PARENS, BRACES)) {
@@ -1321,13 +1332,13 @@ macro $sparkler__compile {
       var block = stx[2];
       var inner = input(optimizeSyntax(block.token.inner));
       var toks  = inner.takeAPeek(IF, PARENS, BRACES);
-      if (toks && inner.buffer.length === 0) {
+      if (toks && inner.length === 0) {
         pred.token.inner = pred.token.inner.concat(makePunc('&&'), toks[1]);
         stx[2] = toks[2];
       } else if (toks) {
-        block.token.inner = toks.concat(inner.buffer);
+        block.token.inner = toks.concat(inner.rest());
       } else {
-        block.token.inner = inner.buffer;
+        block.token.inner = inner.rest();
       }
       return stx;
     }
@@ -1335,12 +1346,12 @@ macro $sparkler__compile {
       var block = stx[1];
       var inner = input(optimizeSyntax(block.token.inner));
       var toks  = inner.takeAPeek(IF, PARENS, BRACES);
-      if (toks && inner.buffer.length === 0) {
+      if (toks && inner.length === 0) {
         return [stx[0]].concat(toks);
       } else if (toks) {
-        block.token.inner = toks.concat(inner.buffer);
+        block.token.inner = toks.concat(inner.rest());
       } else {
-        block.token.inner = inner.buffer;
+        block.token.inner = inner.rest();
       }
       return stx;
     }

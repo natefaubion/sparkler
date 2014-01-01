@@ -5,7 +5,7 @@ function optimizeSyntax(stx) {
   var inp = input(stx);
   var res = [];
   var toks, opt;
-  while (inp.buffer.length) {
+  while (inp.length) {
     if (inp.peek()[0].userCode) {
       res.push(inp.take()[0]);
     } else if (toks = inp.takeAPeek({ type: T.Keyword }, PARENS, BRACES)) {
@@ -38,13 +38,13 @@ function optimizeIfs(stx) {
   var block = stx[2];
   var inner = input(optimizeSyntax(block.token.inner));
   var toks  = inner.takeAPeek(IF, PARENS, BRACES);
-  if (toks && inner.buffer.length === 0) {
+  if (toks && inner.length === 0) {
     pred.token.inner = pred.token.inner.concat(makePunc('&&'), toks[1]);
     stx[2] = toks[2];
   } else if (toks) {
-    block.token.inner = toks.concat(inner.buffer);
+    block.token.inner = toks.concat(inner.rest());
   } else {
-    block.token.inner = inner.buffer;
+    block.token.inner = inner.rest();
   }
   return stx;
 }
@@ -53,12 +53,12 @@ function optimizeElses(stx) {
   var block = stx[1];
   var inner = input(optimizeSyntax(block.token.inner));
   var toks  = inner.takeAPeek(IF, PARENS, BRACES);
-  if (toks && inner.buffer.length === 0) {
+  if (toks && inner.length === 0) {
     return [stx[0]].concat(toks);
   } else if (toks) {
-    block.token.inner = toks.concat(inner.buffer);
+    block.token.inner = toks.concat(inner.rest());
   } else {
-    block.token.inner = inner.buffer;
+    block.token.inner = inner.rest();
   }
   return stx;
 }
