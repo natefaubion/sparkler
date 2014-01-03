@@ -206,7 +206,7 @@ function forceReturn(stx) {
       res.push(inp.take()[0]);
     }
   }
-  if (needsReturn) res.push(makeKeyword('return'));
+  if (needsReturn) res.push(makeKeyword('return', here));
   return res;
 }
 

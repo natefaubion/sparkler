@@ -28,7 +28,7 @@ function compileSimple(cases) {
 
   var argNames = [];
   while (argCount--) {
-    argNames.unshift(makeIdent('a' + argCount, mac));
+    argNames.unshift(makeIdent('a' + argCount, here));
   }
 
   var env = environment({
@@ -47,7 +47,7 @@ function compileSimple(cases) {
   var head = joinRefs(_.values(env.head));
 
   letstx $name ... = fnName[0].token.value === 'anonymous' ? [] : fnName;
-  letstx $args ... = intercalate(makePunc(','), argNames);
+  letstx $args ... = intercalate(makePunc(',', here), argNames);
   letstx $code ... = optimizeSyntax(head.concat(body).concat(err));
   return #{
     function $name ... ($args ...) {
@@ -126,8 +126,8 @@ function compileBranch(patt, env) {
       guardBody = patt.guards.reduceRight(function(rest, g) {
         var names = _.zip(g.names, env2.names);
         var body = joinRefs(names.reduceRight(nameReducer, [])).concat(g.body);
-        var guard = [makeKeyword('if'), makeDelim('()', replaceIdents(g.guard, names)), 
-          makeDelim('{}', body)];
+        var guard = [makeKeyword('if', here), makeDelim('()', replaceIdents(g.guard, names), here), 
+          makeDelim('{}', body, here)];
         return guard.concat(rest);
       }, []);
     }

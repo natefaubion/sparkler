@@ -39,7 +39,7 @@ function optimizeIfs(stx) {
   var inner = input(optimizeSyntax(block.token.inner));
   var toks  = inner.takeAPeek(IF, PARENS, BRACES);
   if (toks && inner.length === 0) {
-    pred.token.inner = pred.token.inner.concat(makePunc('&&'), toks[1]);
+    pred.token.inner = pred.token.inner.concat(makePunc('&&', here), toks[1]);
     stx[2] = toks[2];
   } else if (toks) {
     block.token.inner = toks.concat(inner.rest());

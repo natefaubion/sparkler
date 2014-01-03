@@ -7,7 +7,7 @@ function syntaxError(tok, err, info) {
 var refId = 0;
 
 function makeRef(rhs, ctx) {
-  if (!ctx) ctx = mac;
+  if (!ctx) ctx = here;
   var name = makeIdent('r' + (refId++), ctx);
   var stx = makeAssign(name, rhs, ctx);
   return {
@@ -17,23 +17,24 @@ function makeRef(rhs, ctx) {
 }
 
 function makeAssign(name, rhs, ctx) {
-  if (!ctx) ctx = mac;
+  if (!ctx) ctx = here;
   return _.flatten([
     makeKeyword('var', ctx), name, rhs ? [makePunc('=', ctx), rhs] : [], makePunc(';', ctx)
   ]);
 }
 
 function makeArgument(i, env, ctx) {
+  if (!ctx) ctx = here;
   if (env.argNames.length) {
     return { name: [env.argNames[i]] };
   }
 
   var index = i < 0
-    ? [makeIdent('arguments'), makePunc('.'), makeIdent('length'), 
-       makePunc('-'), makeValue(Math.abs(i))]
-    : [makeValue(i)];
+    ? [makeIdent('arguments', ctx), makePunc('.', ctx), makeIdent('length', ctx), 
+       makePunc('-', ctx), makeValue(Math.abs(i), ctx)]
+    : [makeValue(i, ctx)];
 
-  return makeRef([makeIdent('arguments'), makeDelim('[]', index, ctx)]);
+  return makeRef([makeIdent('arguments', ctx), makeDelim('[]', index, ctx)]);
 }
 
 function indexOfRest(patt) {
@@ -49,19 +50,19 @@ function joinPatterns(j, cs) {
 
 function joinRefs(refs) {
   if (!refs.length) return [];
-  refs = _.flatten(intercalate(makePunc(','), refs.map(function(r) {
+  refs = _.flatten(intercalate(makePunc(',', here), refs.map(function(r) {
     return r.stx ? r.stx.slice(1, -1) : r.slice(1, -1);
   })));
-  return [makeKeyword('var')].concat(refs, makePunc(';'));
+  return [makeKeyword('var', here)].concat(refs, makePunc(';', here));
 }
 
 function joinAlternates(alts) {
   if (alts.length === 1) return alts[0][2].token.inner;
   return alts.reduce(function(acc, alt, i) {
     if (i === alts.length - 1) {
-      alt = [makeKeyword('else')].concat(alt[2]);
+      alt = [makeKeyword('else', here)].concat(alt[2]);
     } else if (i > 0) {
-      alt = [makeKeyword('else')].concat(alt);
+      alt = [makeKeyword('else', here)].concat(alt);
     }
     return acc.concat(alt);
   }, []);
@@ -99,7 +100,7 @@ function wrapBlock(toks) {
   if (matchesToken(BRACES, toks[0])) {
     return toks;
   }
-  return [makeDelim('{}', toks)];
+  return [makeDelim('{}', toks, here)];
 }
 
 function intercalate(x, a) {

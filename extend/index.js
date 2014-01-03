@@ -1,11 +1,3 @@
-Object.defineProperty(Object.prototype, 'applyTo', {
-  writable: true,
-  enumerable: false,
-  value: function(fn) {
-    return fn(this);
-  }
-});
-
 Object.defineProperty(Function.prototype, 'orElse', {
   writable: true,
   enumerable: false,

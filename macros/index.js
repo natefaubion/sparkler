@@ -1,7 +1,7 @@
 macro $sparkler__compile {
-  case { $$mac $ctx $name ( $body ... ) } => {
+  case { $$mac $ctx $name { $body ... } } => {
     var ctx = #{ $ctx };
-    var mac = #{ here };
+    var here = #{ here };
     var fnName = #{ $name };
 
     let letstx = macro {
@@ -11,6 +11,7 @@ macro $sparkler__compile {
         var val = #{ $val };
         var arg = #{ $($rhs) };
         var punc = #{ $punc };
+        var here = #{ here };
         if (punc[0].token.type !== parser.Token.Punctuator ||
             punc[0].token.value !== '...') {
           throw new SyntaxError('Unexpected token: ' + punc[0].token.value +
@@ -22,20 +23,20 @@ macro $sparkler__compile {
         }
         return [
           makeIdent('match', mac),
-          makePunc('.'),
-          makeIdent('patternEnv'),
-          makeDelim('[]', [makeValue(id[0].token.value)]),
-          makePunc('='),
+          makePunc('.', here),
+          makeIdent('patternEnv', here),
+          makeDelim('[]', [makeValue(id[0].token.value, here)], here),
+          makePunc('=', here),
           makeDelim('{}', [
-            makeIdent('level'), makePunc(':'), makeValue(1), makePunc(','),
-            makeIdent('match'), makePunc(':'), makeDelim('()', #{
+            makeIdent('level', here), makePunc(':', here), makeValue(1, here), makePunc(',', here),
+            makeIdent('match', here), makePunc(':', here), makeDelim('()', #{
               (function(exp) {
                 return exp.length
                   ? exp.map(function(t) { return { level: 0, match: [t] } })
                   : [{ level: 0, match: [] }];
               })
-            }), makeDelim('()', arg)
-          ])
+            }, here), makeDelim('()', arg, here)
+          ], here)
         ];
       }
       case { $mac $id:ident = $rhs:expr } => {
@@ -43,20 +44,21 @@ macro $sparkler__compile {
         var id  = #{ $id };
         var val = #{ $val };
         var arg = #{ $($rhs) };
+        var here = #{ here };
         if (id[0].token.value[0] !== '$') {
           throw new SyntaxError('Syntax identifiers must start with $: ' + 
                                 id[0].token.value);
         }
         return [
           makeIdent('match', mac),
-          makePunc('.'),
-          makeIdent('patternEnv'),
-          makeDelim('[]', [makeValue(id[0].token.value)]),
-          makePunc('='),
+          makePunc('.', here),
+          makeIdent('patternEnv', here),
+          makeDelim('[]', [makeValue(id[0].token.value, here)], here),
+          makePunc('=', here),
           makeDelim('{}', [
-            makeIdent('level'), makePunc(':'), makeValue(0), makePunc(','),
-            makeIdent('match'), makePunc(':'), arg[0]
-          ])
+            makeIdent('level', here), makePunc(':', here), makeValue(0, here), makePunc(',', here),
+            makeIdent('match', here), makePunc(':', here), arg[0]
+          ], here)
         ];
       }
     }
@@ -67,7 +69,7 @@ macro $sparkler__compile {
     }
     var refId = 0;
     function makeRef(rhs, ctx) {
-      if (!ctx) ctx = mac;
+      if (!ctx) ctx = here;
       var name = makeIdent('r' + (refId++), ctx);
       var stx = makeAssign(name, rhs, ctx);
       return {
@@ -76,20 +78,21 @@ macro $sparkler__compile {
       };
     }
     function makeAssign(name, rhs, ctx) {
-      if (!ctx) ctx = mac;
+      if (!ctx) ctx = here;
       return _.flatten([
         makeKeyword('var', ctx), name, rhs ? [makePunc('=', ctx), rhs] : [], makePunc(';', ctx)
       ]);
     }
     function makeArgument(i, env, ctx) {
+      if (!ctx) ctx = here;
       if (env.argNames.length) {
         return { name: [env.argNames[i]] };
       }
       var index = i < 0
-        ? [makeIdent('arguments'), makePunc('.'), makeIdent('length'), 
-           makePunc('-'), makeValue(Math.abs(i))]
-        : [makeValue(i)];
-      return makeRef([makeIdent('arguments'), makeDelim('[]', index, ctx)]);
+        ? [makeIdent('arguments', ctx), makePunc('.', ctx), makeIdent('length', ctx), 
+           makePunc('-', ctx), makeValue(Math.abs(i), ctx)]
+        : [makeValue(i, ctx)];
+      return makeRef([makeIdent('arguments', ctx), makeDelim('[]', index, ctx)]);
     }
     function indexOfRest(patt) {
       for (var i = 0; i < patt.children.length; i++) {
@@ -102,18 +105,18 @@ macro $sparkler__compile {
     }
     function joinRefs(refs) {
       if (!refs.length) return [];
-      refs = _.flatten(intercalate(makePunc(','), refs.map(function(r) {
+      refs = _.flatten(intercalate(makePunc(',', here), refs.map(function(r) {
         return r.stx ? r.stx.slice(1, -1) : r.slice(1, -1);
       })));
-      return [makeKeyword('var')].concat(refs, makePunc(';'));
+      return [makeKeyword('var', here)].concat(refs, makePunc(';', here));
     }
     function joinAlternates(alts) {
       if (alts.length === 1) return alts[0][2].token.inner;
       return alts.reduce(function(acc, alt, i) {
         if (i === alts.length - 1) {
-          alt = [makeKeyword('else')].concat(alt[2]);
+          alt = [makeKeyword('else', here)].concat(alt[2]);
         } else if (i > 0) {
-          alt = [makeKeyword('else')].concat(alt);
+          alt = [makeKeyword('else', here)].concat(alt);
         }
         return acc.concat(alt);
       }, []);
@@ -146,7 +149,7 @@ macro $sparkler__compile {
       if (matchesToken(BRACES, toks[0])) {
         return toks;
       }
-      return [makeDelim('{}', toks)];
+      return [makeDelim('{}', toks, here)];
     }
     function intercalate(x, a) {
       var arr = [];
@@ -361,7 +364,7 @@ macro $sparkler__compile {
           res.push(inp.take()[0]);
         }
       }
-      if (needsReturn) res.push(makeKeyword('return'));
+      if (needsReturn) res.push(makeKeyword('return', here));
       return res;
     }
     function parseArgumentList(inp) {
@@ -843,8 +846,8 @@ macro $sparkler__compile {
       }
     }
     function compileKeyValue(patt, env, cont) {
-      var key = [makeValue(patt.stx[0].token.value)];
-      var ref = makeRef([env.ref.name, makeDelim('[]', key)]);
+      var key = [makeValue(patt.stx[0].token.value, here)];
+      var ref = makeRef([env.ref.name, makeDelim('[]', key, here)]);
       var childEnv = env.set({ ref: ref, hasOwn: false });
       var bod = ref.stx.concat(compilePattern(patt.children[0], childEnv, cont));
       return makeObjectCheck(env.ref.name, key, bod, env);
@@ -854,11 +857,11 @@ macro $sparkler__compile {
       if (child.type === 'literal') {
         return makeObjectCheck(env.ref.name, child.stx, cont(env), env);
       }
-      var key = [makeValue(child.name)];
-      var ref = makeRef([env.ref.name, makeDelim('[]', key)]);
+      var key = [makeValue(child.name, here)];
+      var ref = makeRef([env.ref.name, makeDelim('[]', key, here)]);
       var childEnv = env.set({ ref: ref, hasOwn: false });
       var bod = ref.stx.concat(compilePattern(child, childEnv, cont));
-      return makeObjectCheck(env.ref.name, [makeValue(child.name)], bod, env);
+      return makeObjectCheck(env.ref.name, [makeValue(child.name, here)], bod, env);
     }
     function compileArray(patt, env, cont) {
       env = env
@@ -881,10 +884,10 @@ macro $sparkler__compile {
             }
             else {
               var start = env.start < 0
-                ? env.ref.name.concat(makePunc('.'), makeIdent('length'), 
-                    makePunc('-'), makeValue(Math.abs(env.start)))
-                : [makeValue(env.start)];
-              ref = makeRef([env.ref.name, makeDelim('[]', start)]);
+                ? env.ref.name.concat(makePunc('.', here), makeIdent('length', here),
+                    makePunc('-', here), makeValue(Math.abs(env.start), here))
+                : [makeValue(env.start, here)];
+              ref = makeRef([env.ref.name, makeDelim('[]', start, here)]);
               env2 = env.set({ ref: ref, start: e.start + 1 });
             }
             var bod = compilePattern(p, env2, function(e) {
@@ -900,7 +903,7 @@ macro $sparkler__compile {
               var op = hasRest ? #{ >= } : #{ === };
               letstx $bod ... = c(env);
               letstx $ref = env.ref.name;
-              letstx $len = [makeValue(len)];
+              letstx $len = [makeValue(len, here)];
               letstx $op  = op;
               return #{
                 if ($ref.length $op $len) { $bod ... }
@@ -925,7 +928,7 @@ macro $sparkler__compile {
       if (child.type === 'wildcard') {
         return cont(env);
       }
-      var okRef  = makeRef(makeValue(true)); 
+      var okRef  = makeRef(makeValue(true, here)); 
       var iRef   = makeRef(); 
       var lenRef = makeRef(); 
       var inRef  = makeRef(); 
@@ -938,11 +941,11 @@ macro $sparkler__compile {
       });
       var loopBody = compilePattern(child, childEnv, function(env2) {
         function reducer(acc, n) {
-          var ref = makeRef(makeDelim('[]', []));
+          var ref = makeRef(makeDelim('[]', [], here));
           env.restRefs.push(ref);
           return acc.concat(ref.name,
-            makeDelim('[]', ref.name.concat(makePunc('.'), makeIdent('length'))), 
-            makePunc('='), n.name || n.stx, makePunc(';'));
+            makeDelim('[]', ref.name.concat(makePunc('.', here), makeIdent('length', here)), here), 
+            makePunc('=', here), n.name || n.stx, makePunc(';', here));
         }
         var stx = env2.names.reduceRight(reducer, []);
         if (env2.restRefs) stx = env2.restRefs.reduceRight(reducer, stx);
@@ -952,12 +955,12 @@ macro $sparkler__compile {
         if (isRootRest) env = env.addName(r.name);
         return r.stx;
       });
-      var stopRef = env.ref.name.concat(makePunc('.'), makeIdent('length'));
-      if (stop > 0) stopRef.push(makePunc('-'), makeValue(stop));
+      var stopRef = env.ref.name.concat(makePunc('.', here), makeIdent('length', here));
+      if (stop > 0) stopRef.push(makePunc('-', here), makeValue(stop, here));
       letstx $bod ... = cont(env);
       letstx $loopBod ... = loopBody;
-      letstx $start = [makeValue(start)];
-      letstx $stop  = [makeDelim('()', stopRef)];
+      letstx $start = [makeValue(start, here)];
+      letstx $stop  = [makeDelim('()', stopRef, here)];
       letstx $ok    = okRef.name;
       letstx $i     = iRef.name;
       letstx $len   = lenRef.name;
@@ -1006,7 +1009,7 @@ macro $sparkler__compile {
       }, 0);
       var argNames = [];
       while (argCount--) {
-        argNames.unshift(makeIdent('a' + argCount, mac));
+        argNames.unshift(makeIdent('a' + argCount, here));
       }
       var env = environment({
         cases: cases,
@@ -1020,7 +1023,7 @@ macro $sparkler__compile {
       var err  = #{ throw new TypeError('No match') };
       var head = joinRefs(_.values(env.head));
       letstx $name ... = fnName[0].token.value === 'anonymous' ? [] : fnName;
-      letstx $args ... = intercalate(makePunc(','), argNames);
+      letstx $args ... = intercalate(makePunc(',', here), argNames);
       letstx $code ... = optimizeSyntax(head.concat(body).concat(err));
       return #{
         function $name ... ($args ...) {
@@ -1084,8 +1087,8 @@ macro $sparkler__compile {
           guardBody = patt.guards.reduceRight(function(rest, g) {
             var names = _.zip(g.names, env2.names);
             var body = joinRefs(names.reduceRight(nameReducer, [])).concat(g.body);
-            var guard = [makeKeyword('if'), makeDelim('()', replaceIdents(g.guard, names)), 
-              makeDelim('{}', body)];
+            var guard = [makeKeyword('if', here), makeDelim('()', replaceIdents(g.guard, names), here), 
+              makeDelim('{}', body, here)];
             return guard.concat(rest);
           }, []);
         }
@@ -1148,7 +1151,7 @@ macro $sparkler__compile {
       });
       var argNames = [];
       var nameRefs = [];
-      while (argLen--) argNames.unshift(makeIdent('a' + argLen, mac));
+      while (argLen--) argNames.unshift(makeIdent('a' + argLen, here));
       while (nameLen--) nameRefs.push(makeRef());
       var stx = [];
       var env = environment({
@@ -1161,7 +1164,7 @@ macro $sparkler__compile {
         return compileState(parseInt(id), patts, env);
       });
       letstx $name ... = fnName[0].token.value === 'anonymous' ? [] : fnName;
-      letstx $args ... = intercalate(makePunc(','), argNames);
+      letstx $args ... = intercalate(makePunc(',', here), argNames);
       letstx $head ... = joinRefs(_.values(env.head));
       letstx $refs ... = joinRefs(nameRefs.concat(env.backRefs));
       letstx $code ... = optimizeSyntax(joinAlternates(stxStates));
@@ -1183,8 +1186,8 @@ macro $sparkler__compile {
         if (patt.body) {
           var names = _.zip(patt.names, env.nameRefs.slice(0, patt.names.length));
           var code  = names.reduce(function(acc, pair) {
-            return acc.concat(makeKeyword('var'), makeIdent(pair[0], ctx),
-              makePunc('='), pair[1].name, makePunc(';'));
+            return acc.concat(makeKeyword('var', here), makeIdent(pair[0], ctx),
+              makePunc('=', here), pair[1].name, makePunc(';', here));
           }, []).concat(patt.body);
           if (patt.guard.length) {
             letstx $guard ... = replaceIdents(patt.guard, names);
@@ -1201,14 +1204,14 @@ macro $sparkler__compile {
           }
         }
         else {
-          letstx $nextState = [makeValue(patt.succ)];
+          letstx $nextState = [makeValue(patt.succ, here)];
           body = body.concat(#{
             s = $nextState;
             continue;
           });
         }
         letstx $caseBod ... = body;
-        letstx $currCase = [makeValue(patt.case)];
+        letstx $currCase = [makeValue(patt.case, here)];
         return #{
           if (c === $currCase) {
             $caseBod ...
@@ -1227,12 +1230,12 @@ macro $sparkler__compile {
           nameLen = env2.names.length;
           if (nameLen) {
             return env2.names.reduce(function(acc, name, i) {
-              return acc.concat(backRef.name, makeDelim('[]', [makeValue(i)]),
-                makePunc('='), name.stx, makePunc(';'));
+              return acc.concat(backRef.name, makeDelim('[]', [makeValue(i, here)], here),
+                makePunc('=', here), name.stx, makePunc(';', here));
             }, []);
           } else {
-            return backRef.name.concat(makePunc('.'), makeIdent('length'),
-              makePunc('='), makeValue(1), makePunc(';'));
+            return backRef.name.concat(makePunc('.', here), makeIdent('length', here),
+              makePunc('=', here), makeValue(1, here), makePunc(';', here));
           }
         });
         letstx $bod ... = pattBody;
@@ -1246,8 +1249,8 @@ macro $sparkler__compile {
         succBody = joinAlternates(patts.map(function(patt) {
           var refs = env.nameRefs.slice(patt.offset, patt.offset + nameLen);
           var body = refs.reduce(function(acc, ref, i) {
-            return acc.concat(ref.name, makePunc('='), backRef.name,
-              makeDelim('[]', [makeValue(i)]), makePunc(';'));
+            return acc.concat(ref.name, makePunc('=', here), backRef.name,
+              makeDelim('[]', [makeValue(i, here)], here), makePunc(';', here));
           }, []);
           return compileSucc(patt, body);
         }));
@@ -1264,14 +1267,14 @@ macro $sparkler__compile {
           return joinAlternates(patts.map(function(patt) {
             var refs = env.nameRefs.slice(patt.offset, patt.offset + env2.names.length);
             var body = _.zip(refs, env2.names).reduce(function(acc, pair) {
-              return acc.concat(pair[0].name, makePunc('='), pair[1].stx, makePunc(';'));
+              return acc.concat(pair[0].name, makePunc('=', here), pair[1].stx, makePunc(';', here));
             }, []);
             return compileSucc(patt, body);
           }));
         });
       }
       failBody = joinAlternates(patts.map(function(patt) {
-        letstx $currCase = [makeValue(patt.case)];
+        letstx $currCase = [makeValue(patt.case, here)];
         if (!patt.fail) {
           return #{
             if (c === $currCase) {
@@ -1279,8 +1282,8 @@ macro $sparkler__compile {
             }
           }
         } else {
-          letstx $nextCase = [makeValue(patt.case + 1)];
-          letstx $nextState = [makeValue(patt.fail)];
+          letstx $nextCase = [makeValue(patt.case + 1, here)];
+          letstx $nextState = [makeValue(patt.fail, here)];
           return #{
             if (c === $currCase) {
               s = $nextState, c = $nextCase;
@@ -1289,7 +1292,7 @@ macro $sparkler__compile {
         }
       }));
       letstx $bod ... = pattBody.concat(succBody).concat(failBody);
-      letstx $id = [makeValue(id)];
+      letstx $id = [makeValue(id, here)];
       return #{
         if (s === $id) {
           $bod ...
@@ -1333,7 +1336,7 @@ macro $sparkler__compile {
       var inner = input(optimizeSyntax(block.token.inner));
       var toks  = inner.takeAPeek(IF, PARENS, BRACES);
       if (toks && inner.length === 0) {
-        pred.token.inner = pred.token.inner.concat(makePunc('&&'), toks[1]);
+        pred.token.inner = pred.token.inner.concat(makePunc('&&', here), toks[1]);
         stx[2] = toks[2];
       } else if (toks) {
         block.token.inner = toks.concat(inner.rest());
@@ -1374,12 +1377,12 @@ macro $sparkler__compile {
 let function = macro {
   case { $ctx $name:ident { $body ... } } => {
     return #{
-      $sparkler__compile $ctx $name ($body ...)
+      $sparkler__compile $ctx $name { $body ... }
     };
   }
   case { $ctx { $body ... } } => {
     return #{
-      $sparkler__compile $ctx anonymous ($body ...)
+      $sparkler__compile $ctx anonymous { $body ... }
     }
   }
   case { _ } => {
@@ -1387,4 +1390,16 @@ let function = macro {
   }
 }
 
-export function
+let match = macro {
+  case infix { $lhs:expr | $ctx { $body ... } } => {
+    return #{
+      $sparkler__compile $ctx anonymous { $body ... }($lhs)
+    }
+  }
+  case { _ } => {
+    return #{ match }
+  }
+}
+
+export function;
+export match;

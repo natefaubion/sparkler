@@ -59,7 +59,7 @@ function compileBacktrack(cases) {
 
   var argNames = [];
   var nameRefs = [];
-  while (argLen--) argNames.unshift(makeIdent('a' + argLen, mac));
+  while (argLen--) argNames.unshift(makeIdent('a' + argLen, here));
   while (nameLen--) nameRefs.push(makeRef());
 
   var stx = [];
@@ -75,7 +75,7 @@ function compileBacktrack(cases) {
   });
 
   letstx $name ... = fnName[0].token.value === 'anonymous' ? [] : fnName;
-  letstx $args ... = intercalate(makePunc(','), argNames);
+  letstx $args ... = intercalate(makePunc(',', here), argNames);
   letstx $head ... = joinRefs(_.values(env.head));
   letstx $refs ... = joinRefs(nameRefs.concat(env.backRefs));
   letstx $code ... = optimizeSyntax(joinAlternates(stxStates));
@@ -103,8 +103,8 @@ function compileState(id, patts, env) {
     if (patt.body) {
       var names = _.zip(patt.names, env.nameRefs.slice(0, patt.names.length));
       var code  = names.reduce(function(acc, pair) {
-        return acc.concat(makeKeyword('var'), makeIdent(pair[0], ctx),
-          makePunc('='), pair[1].name, makePunc(';'));
+        return acc.concat(makeKeyword('var', here), makeIdent(pair[0], ctx),
+          makePunc('=', here), pair[1].name, makePunc(';', here));
       }, []).concat(patt.body);
 
       if (patt.guard.length) {
@@ -124,7 +124,7 @@ function compileState(id, patts, env) {
     
     // Go to the next state.
     else {
-      letstx $nextState = [makeValue(patt.succ)];
+      letstx $nextState = [makeValue(patt.succ, here)];
       body = body.concat(#{
         s = $nextState;
         continue;
@@ -132,7 +132,7 @@ function compileState(id, patts, env) {
     }
 
     letstx $caseBod ... = body;
-    letstx $currCase = [makeValue(patt.case)];
+    letstx $currCase = [makeValue(patt.case, here)];
     return #{
       if (c === $currCase) {
         $caseBod ...
@@ -166,12 +166,12 @@ function compileState(id, patts, env) {
       // Otherwise we need to just set the length to `1` to mark success.
       if (nameLen) {
         return env2.names.reduce(function(acc, name, i) {
-          return acc.concat(backRef.name, makeDelim('[]', [makeValue(i)]),
-            makePunc('='), name.stx, makePunc(';'));
+          return acc.concat(backRef.name, makeDelim('[]', [makeValue(i, here)], here),
+            makePunc('=', here), name.stx, makePunc(';', here));
         }, []);
       } else {
-        return backRef.name.concat(makePunc('.'), makeIdent('length'),
-          makePunc('='), makeValue(1), makePunc(';'));
+        return backRef.name.concat(makePunc('.', here), makeIdent('length', here),
+          makePunc('=', here), makeValue(1, here), makePunc(';', here));
       }
     });
 
@@ -186,8 +186,8 @@ function compileState(id, patts, env) {
     succBody = joinAlternates(patts.map(function(patt) {
       var refs = env.nameRefs.slice(patt.offset, patt.offset + nameLen);
       var body = refs.reduce(function(acc, ref, i) {
-        return acc.concat(ref.name, makePunc('='), backRef.name,
-          makeDelim('[]', [makeValue(i)]), makePunc(';'));
+        return acc.concat(ref.name, makePunc('=', here), backRef.name,
+          makeDelim('[]', [makeValue(i, here)], here), makePunc(';', here));
       }, []);
       return compileSucc(patt, body);
     }));
@@ -208,7 +208,7 @@ function compileState(id, patts, env) {
       return joinAlternates(patts.map(function(patt) {
         var refs = env.nameRefs.slice(patt.offset, patt.offset + env2.names.length);
         var body = _.zip(refs, env2.names).reduce(function(acc, pair) {
-          return acc.concat(pair[0].name, makePunc('='), pair[1].stx, makePunc(';'));
+          return acc.concat(pair[0].name, makePunc('=', here), pair[1].stx, makePunc(';', here));
         }, []);
         return compileSucc(patt, body);
       }));
@@ -219,7 +219,7 @@ function compileState(id, patts, env) {
   // to jump to, we just break out of the while loop which will then trigger
   // a match error.
   failBody = joinAlternates(patts.map(function(patt) {
-    letstx $currCase = [makeValue(patt.case)];
+    letstx $currCase = [makeValue(patt.case, here)];
     if (!patt.fail) {
       return #{
         if (c === $currCase) {
@@ -227,8 +227,8 @@ function compileState(id, patts, env) {
         }
       }
     } else {
-      letstx $nextCase = [makeValue(patt.case + 1)];
-      letstx $nextState = [makeValue(patt.fail)];
+      letstx $nextCase = [makeValue(patt.case + 1, here)];
+      letstx $nextState = [makeValue(patt.fail, here)];
       return #{
         if (c === $currCase) {
           s = $nextState, c = $nextCase;
@@ -238,7 +238,7 @@ function compileState(id, patts, env) {
   }));
 
   letstx $bod ... = pattBody.concat(succBody).concat(failBody);
-  letstx $id = [makeValue(id)];
+  letstx $id = [makeValue(id, here)];
   return #{
     if (s === $id) {
       $bod ...

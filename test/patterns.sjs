@@ -337,6 +337,20 @@ describe 'Case patterns' {
     test 'backtrack' { count === 1 }
   }
 
+  // Match keyword
+  // -------------
+
+  it 'should support the infix match keyword' {
+    function go(test) {
+      return test match {
+        case x @ Number => x.toString()
+        case * => null
+      }
+    }
+
+    test 'success' { go(42) === '42' && go(true) === null }
+  }
+
   // Regressions
   // -----------
 

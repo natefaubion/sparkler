@@ -25,13 +25,6 @@ describe 'Extensions' {
     test 'unapplyObj' { go2(/foo/i) === 'foo' }
   }
 
-  it 'should match with applyTo' {
-    function go {
-      case { x } => x + 1
-    }
-    test 'object' {{ x: 2 }.applyTo(go) === 3 }
-  }
-
   it 'should compose with orElse' {
     function go {
       case 42 => true

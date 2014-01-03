@@ -196,6 +196,22 @@ Foo.prototype = {
 
 If you want a catch-all, you should use a wildcard (`*`) instead.
 
+Match Keyword
+-------------
+
+Sparkler exports a `match` infix macro for doing easy matching on an expression.
+
+```js
+var num = 12;
+var isNumber = num match {
+  case Number => true
+  case * => false
+};
+```
+
+This works by desugaring `match` into a self-invoking function with `num` as
+the argument.
+
 Custom Extractors
 -----------------
 
@@ -295,14 +311,6 @@ function regexpStuff {
   case RegExp{ flags: { 'i' }} => ...
 }
 
-// Infix matching with `applyTo`
-List.prototype.map = function(fn) {
-  return this.applyTo(function {
-    case Nil => Nil
-    case Cons(x, xs) => Cons(fn(x), xs.map(fn))
-  })
-}
-
 // Partial-function composition with `orElse`
 function partial {
   case Foo => 'foo'
@@ -313,8 +321,8 @@ var total = partial.orElse(function {
 })
 ```
 
-`applyTo` and `orElse` are added to prototypes safely using `defineProperty`
-and aren't enumerable.
+`orElse` is added to the prototype safely using `defineProperty`
+and isn't enumerable.
 
 ***
 

@@ -252,8 +252,8 @@ function makeObjectCheck(ref, key, bod, env) {
 }
 
 function compileKeyValue(patt, env, cont) {
-  var key = [makeValue(patt.stx[0].token.value)];
-  var ref = makeRef([env.ref.name, makeDelim('[]', key)]);
+  var key = [makeValue(patt.stx[0].token.value, here)];
+  var ref = makeRef([env.ref.name, makeDelim('[]', key, here)]);
 
   var childEnv = env.set({ ref: ref, hasOwn: false });
   var bod = ref.stx.concat(compilePattern(patt.children[0], childEnv, cont));
@@ -268,13 +268,13 @@ function compileKey(patt, env, cont) {
     return makeObjectCheck(env.ref.name, child.stx, cont(env), env);
   }
 
-  var key = [makeValue(child.name)];
-  var ref = makeRef([env.ref.name, makeDelim('[]', key)]);
+  var key = [makeValue(child.name, here)];
+  var ref = makeRef([env.ref.name, makeDelim('[]', key, here)]);
   
   var childEnv = env.set({ ref: ref, hasOwn: false });
   var bod = ref.stx.concat(compilePattern(child, childEnv, cont));
 
-  return makeObjectCheck(env.ref.name, [makeValue(child.name)], bod, env);
+  return makeObjectCheck(env.ref.name, [makeValue(child.name, here)], bod, env);
 }
 
 function compileArray(patt, env, cont) {
@@ -302,10 +302,10 @@ function compileArray(patt, env, cont) {
         
         else {
           var start = env.start < 0
-            ? env.ref.name.concat(makePunc('.'), makeIdent('length'), 
-                makePunc('-'), makeValue(Math.abs(env.start)))
-            : [makeValue(env.start)];
-          ref = makeRef([env.ref.name, makeDelim('[]', start)]);
+            ? env.ref.name.concat(makePunc('.', here), makeIdent('length', here),
+                makePunc('-', here), makeValue(Math.abs(env.start), here))
+            : [makeValue(env.start, here)];
+          ref = makeRef([env.ref.name, makeDelim('[]', start, here)]);
           env2 = env.set({ ref: ref, start: e.start + 1 });
         }
 
@@ -326,7 +326,7 @@ function compileArray(patt, env, cont) {
           var op = hasRest ? #{ >= } : #{ === };
           letstx $bod ... = c(env);
           letstx $ref = env.ref.name;
-          letstx $len = [makeValue(len)];
+          letstx $len = [makeValue(len, here)];
           letstx $op  = op;
           return #{
             if ($ref.length $op $len) { $bod ... }
@@ -359,7 +359,7 @@ function compileRest(patt, env, cont) {
     return cont(env);
   }
 
-  var okRef  = makeRef(makeValue(true)); // Whether the pattern matches for every item.
+  var okRef  = makeRef(makeValue(true, here)); // Whether the pattern matches for every item.
   var iRef   = makeRef(); // The current index in the loop.
   var lenRef = makeRef(); // The length of iteration.
   var inRef  = makeRef(); // The current item.
@@ -381,13 +381,13 @@ function compileRest(patt, env, cont) {
 
   var loopBody = compilePattern(child, childEnv, function(env2) {
     function reducer(acc, n) {
-      var ref = makeRef(makeDelim('[]', []));
+      var ref = makeRef(makeDelim('[]', [], here));
       env.restRefs.push(ref);
 
       // Array push code: ref[ref.length] = val
       return acc.concat(ref.name,
-        makeDelim('[]', ref.name.concat(makePunc('.'), makeIdent('length'))), 
-        makePunc('='), n.name || n.stx, makePunc(';'));
+        makeDelim('[]', ref.name.concat(makePunc('.', here), makeIdent('length', here)), here), 
+        makePunc('=', here), n.name || n.stx, makePunc(';', here));
     }
 
     var stx = env2.names.reduceRight(reducer, []);
@@ -401,13 +401,13 @@ function compileRest(patt, env, cont) {
   });
 
   // Generates the code that calculates where to stop looping.
-  var stopRef = env.ref.name.concat(makePunc('.'), makeIdent('length'));
-  if (stop > 0) stopRef.push(makePunc('-'), makeValue(stop));
+  var stopRef = env.ref.name.concat(makePunc('.', here), makeIdent('length', here));
+  if (stop > 0) stopRef.push(makePunc('-', here), makeValue(stop, here));
 
   letstx $bod ... = cont(env);
   letstx $loopBod ... = loopBody;
-  letstx $start = [makeValue(start)];
-  letstx $stop  = [makeDelim('()', stopRef)];
+  letstx $start = [makeValue(start, here)];
+  letstx $stop  = [makeDelim('()', stopRef, here)];
   letstx $ok    = okRef.name;
   letstx $i     = iRef.name;
   letstx $len   = lenRef.name;
