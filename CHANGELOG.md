@@ -1,3 +1,8 @@
+## 0.1.6 (2014-1-11)
+
+* Update for sweet.js 0.4.x
+* Remove `applyTo` method in favor of `match` infix macro
+
 ## 0.1.5 (2013-12-13)
 
 * Fix `letstx` scope so as not to interfere with new builtin `letstx`
@@ -22,4 +27,4 @@
 
 ## 0.1.0 (2013-10-09)
 
-Initial release
+* Initial release

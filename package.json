@@ -1,6 +1,6 @@
 {
   "name": "sparkler",
-  "version": "0.1.5",
+  "version": "0.1.6",
   "description": "Native pattern matching for JavaScript",
   "scripts": {
     "test": "grunt test"
@@ -14,14 +14,17 @@
     "matching",
     "patterns",
     "matches",
-    "functional"
+    "functional",
+    "macro",
+    "macros",
+    "sweet-macros"
   ],
   "author": "Nathan Faubion <nathan@n-son.com>",
   "license": "MIT",
   "readmeFilename": "README.md",
   "devDependencies": {
     "grunt": "~0.4.1",
-    "sweet.js": "~0.3.0",
+    "sweet.js": "~0.4.0",
     "chai": "~1.8.0",
     "grunt-mocha-test": "~0.7.0"
   }
