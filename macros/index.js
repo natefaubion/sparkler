@@ -753,7 +753,7 @@ macro $sparkler__compile {
       var clsName = patt.stx[patt.stx.length - 1].token.value;
       if (child && child.type === 'unapply') {
         var arrRef = makeRef();
-        var childEnv = env.set({ ref: arrRef });
+        var childEnv = env.set({ noCheck: true, ref: arrRef });
         letstx $bod ... = compilePattern(child, childEnv, cont);
         letstx $cls ... = patt.stx;
         letstx $arr = arrRef.name;
@@ -765,7 +765,7 @@ macro $sparkler__compile {
       }
       else if (child && child.type === 'object') {
         var objRef = makeRef();
-        var childEnv = env.set({ hasOwn: true, ref: objRef });
+        var childEnv = env.set({ noCheck: true, hasOwn: true, ref: objRef });
         letstx $bod ... = compilePattern(child, childEnv, cont);
         letstx $cls ... = patt.stx;
         letstx $obj = objRef.name;
@@ -811,8 +811,9 @@ macro $sparkler__compile {
       }
     }
     function compileObject(patt, env, cont) {
+      var noCheck = env.noCheck;
       var primRef = env.ref;
-      env = env.set({ ref: makeRef() });
+      env = env.set({ ref: noCheck ? primRef : makeRef(), noCheck: false });
       cont = patt.children.reduceRight(function(c, p) {
         return function() {
           return compilePattern(p, env, function(e) {
@@ -823,11 +824,17 @@ macro $sparkler__compile {
       }, cont);
       letstx $bod ... = cont(env);
       letstx $ref = primRef.name;
-      letstx $box = env.ref.name;
-      return #{
-        if ($ref != null) {
-          var $box = Object($ref);
-          $bod ...
+      if (noCheck) {
+        return #{
+          if ($ref != null) { $bod ... }
+        }
+      } else {
+        letstx $box = env.ref.name;
+        return #{
+          if ($ref != null) {
+            var $box = Object($ref);
+            $bod ...
+          }
         }
       }
     }
@@ -864,10 +871,13 @@ macro $sparkler__compile {
       return makeObjectCheck(env.ref.name, [makeValue(child.name, here)], bod, env);
     }
     function compileArray(patt, env, cont) {
-      env = env
-        .addHead('toStr', TO_STR_REF)
-        .addHead('Array', natives.Array)
-        .set({ start: 0 });
+      var noCheck = env.noCheck;
+      if (!env.noCheck) {
+        env = env
+          .addHead('toStr', TO_STR_REF)
+          .addHead('Array', natives.Array)
+      }
+      env = env.set({ start: 0, noCheck: false });
       var len = patt.children.length;
       var restIndex = indexOfRest(patt);
       var hasRest = restIndex >= 0;
@@ -912,12 +922,18 @@ macro $sparkler__compile {
           }(cont);
         }
       }
-      letstx $bod ... = cont(env);
-      letstx $toStr = TO_STR_REF.name;
-      letstx $arrStr = natives.Array.name;
       letstx $ref = env.ref.name;
-      return #{
-        if ($toStr.call($ref) === $arrStr) { $bod ... }
+      letstx $bod ... = cont(env);
+      if (noCheck) {
+        return #{
+          if ($ref != null) { $bod ... }
+        }
+      } else {
+        letstx $toStr = TO_STR_REF.name;
+        letstx $arrStr = natives.Array.name;
+        return #{
+          if ($toStr.call($ref) === $arrStr) { $bod ... }
+        }
       }
     }
     function compileRest(patt, env, cont) {
