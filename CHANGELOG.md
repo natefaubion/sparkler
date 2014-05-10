@@ -1,3 +1,10 @@
+## 0.2.0 (2014-5-10)
+
+* The `case` keyword is no longer required. Cases are separated by commas.
+* The `match` keyword is no longer infix.
+* In a set of ambiguous cases, the longest case is no longer run. It now
+  correctly runs the first case.
+
 ## 0.1.6 (2014-1-11)
 
 * Update for sweet.js 0.4.x
