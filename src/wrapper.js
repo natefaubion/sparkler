@@ -33,9 +33,9 @@ let function = macro {
 }
 
 let match = macro {
-  case infix { $lhs:expr | $ctx { $body ... } } => {
+  case { $ctx $op:expr { $body ... } } => {
     return #{
-      $sparkler__compile $ctx anonymous { $body ... }($lhs)
+      $sparkler__compile $ctx anonymous { $body ... }($op)
     }
   }
   case { _ } => {

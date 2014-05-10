@@ -289,8 +289,6 @@ macro $sparkler__compile {
       return cases;
     }
     function scanArgumentList(inp) {
-      var tok = inp.takeAPeek(CASE);
-      if (!tok) syntaxError(inp.take(), null, 'expected case');
       var res = inp.takeAPeek(PARENS);
       if (res) {
         if (inp.peek(IF) || inp.peek(ARROW)) return res[0].expose().token.inner;
@@ -325,14 +323,12 @@ macro $sparkler__compile {
       inp.take(1);
       var res = inp.takeAPeek(BRACES);
       if (res) {
-        if (inp.peek(CASE) || !inp.length) {
-          return forceReturn(res[0].expose().token.inner);
-        }
-        syntaxError(inp.take(), null, 'maybe you meant case');
+        inp.takeAPeek(COMMA);
+        return forceReturn(res[0].expose().token.inner);
       }
       res = [];
       while (inp.length) {
-        if (inp.peek(CASE)) break;
+        if (inp.takeAPeek(COMMA)) break;
         res.push(inp.take(1)[0]);
       }
       return prependReturn(res);
@@ -1407,9 +1403,9 @@ let function = macro {
 }
 
 let match = macro {
-  case infix { $lhs:expr | $ctx { $body ... } } => {
+  case { $ctx $op:expr { $body ... } } => {
     return #{
-      $sparkler__compile $ctx anonymous { $body ... }($lhs)
+      $sparkler__compile $ctx anonymous { $body ... }($op)
     }
   }
   case { _ } => {

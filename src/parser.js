@@ -119,9 +119,6 @@ function parse(stx) {
 }
 
 function scanArgumentList(inp) {
-  var tok = inp.takeAPeek(CASE);
-  if (!tok) syntaxError(inp.take(), null, 'expected case');
-
   var res = inp.takeAPeek(PARENS);
   if (res) {
     if (inp.peek(IF) || inp.peek(ARROW)) return res[0].expose().token.inner;
@@ -160,17 +157,13 @@ function scanCaseBody(inp) {
   inp.take(1);
   var res = inp.takeAPeek(BRACES);
   if (res) {
-    if (inp.peek(CASE) || !inp.length) {
-      // We need to expose the block, otherwise all the inner tokens will lose
-      // their context and vars won't get renamed/resolved correctly.
-      return forceReturn(res[0].expose().token.inner);
-    }
-    syntaxError(inp.take(), null, 'maybe you meant case');
+    inp.takeAPeek(COMMA);
+    return forceReturn(res[0].expose().token.inner);
   }
 
   res = [];
   while (inp.length) {
-    if (inp.peek(CASE)) break;
+    if (inp.takeAPeek(COMMA)) break;
     res.push(inp.take(1)[0]);
   }
 

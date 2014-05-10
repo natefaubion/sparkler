@@ -5,10 +5,10 @@ describe 'Extensions' {
 
   it 'should destructure Dates' {
     function go1 {
-      case Date(y, m, d, ...) => [y, m, d]
+      Date(y, m, d, ...) => [y, m, d]
     }
     function go2 {
-      case Date{ time } => time
+      Date{ time } => time
     }
     test 'unapply'    { go1(new Date(1955, 10, 5)) =>= [1955, 10, 5] }
     test 'unapplyObj' { go2(new Date(123456789)) === 123456789 }
@@ -16,10 +16,10 @@ describe 'Extensions' {
 
   it 'should destructure RegExps' {
     function go1 {
-      case RegExp(p, f) => [p, f]
+      RegExp(p, f) => [p, f]
     }
     function go2 {
-      case RegExp{pattern, flags: { 'i' }} => pattern
+      RegExp{pattern, flags: { 'i' }} => pattern
     }
     test 'unapply'    { go1(/foo/g) =>= ['foo', { g: true }] }
     test 'unapplyObj' { go2(/foo/i) === 'foo' }
@@ -27,10 +27,10 @@ describe 'Extensions' {
 
   it 'should compose with orElse' {
     function go {
-      case 42 => true
+      42 => true
     }
     var total = go.orElse(function {
-      case * => false
+      * => false
     })
     test 'throws'  { go(12) =!= TypeError }
     test 'catches' { total(12) === false }

@@ -11,28 +11,28 @@ Here's a small slice of what you can do with it:
 ```js
 function myPatterns {
   // Match literals
-  case 42 => 'The meaning of life'
+  42 => 'The meaning of life',
 
   // Tag checking for JS types using Object::toString
-  case a @ String => 'Hello ' + a
+  a @ String => 'Hello ' + a,
 
   // Array destructuring
-  case [...front, back] => back.concat(front)
+  [...front, back] => back.concat(front),
 
   // Object destructuring
-  case { foo: 'bar', x, 'y' } => x
+  { foo: 'bar', x, 'y' } => x,
 
   // Custom extractors
-  case Email{ user, domain: 'foo.com' } => user
+  Email { user, domain: 'foo.com' } => user,
 
   // Rest arguments
-  case (a, b, ...rest) => rest
+  (a, b, ...rest) => rest,
 
   // Rest patterns (mapping a pattern over many values)
-  case [...{ x, y }] => _.zip(x, y)
+  [...{ x, y }] => _.zip(x, y),
 
   // Guards
-  case x @ Number if x > 10 => x
+  x @ Number if x > 10 => x
 }
 ```
 
@@ -52,16 +52,16 @@ How Does It Work?
 Sparkler overloads the `function` keyword as a macro (don't worry, all your old
 functions will still work) but implements a slightly different syntax. There's
 no argument list after the name or function keyword. Instead the function body
-is just a set of `case`s with ES6 style arrow-lambdas.
+is just a set of ES6 style arrow-lambdas separated by commas.
 
 ```js
 function myFunc {
   // Single arguments don't need parens and simple expression 
   // bodies get an implicit `return`.
-  case a @ String => 'Hello ' + a
+  a @ String => 'Hello ' + a,
 
   // Add parens and braces if you need more.
-  case (x, y, z) => {
+  (x, y, z) => {
     return x + y + z;
   }
 }
@@ -71,8 +71,8 @@ You can also do this with anonymous functions:
 
 ```js
 DB.getResource('123', function {
-  case (null, resp) => complete(resp)
-  case (err) => handleError(err)
+  (null, resp) => complete(resp),
+  (err) => handleError(err)
 })
 ```
 
@@ -87,8 +87,8 @@ something like this:
 
 ```js
 function expensiveExtraction {
-  case (MyExtractor(x, y, z), 1) => doThis()
-  case (MyExtractor(x, y, z), *) => doThat()
+  (MyExtractor(x, y, z), 1) => doThis(),
+  (MyExtractor(x, y, z), *) => doThat()
 }
 ```
 
@@ -104,9 +104,9 @@ over to the backtracking compiler if it thinks it will help.
 
 ```js
 function useBacktracking {
-  case (MyExtractor(x), 1) => doThis()
-  case (Foo(x)        , 2) => doThat()
-  case (MyExtractor(x), 3) => doThisAndThat()
+  (MyExtractor(x), 1) => doThis(),
+  (Foo(x)        , 2) => doThat(),
+  (MyExtractor(x), 3) => doThisAndThat()
 }
 ```
 
@@ -131,9 +131,9 @@ behavior, so you have to be careful combining ambiguous cases.
 
 ```js
 function ambiguous {
-  case (a)       => 1
-  case (a, b)    => 2
-  case (a, b, c) => 3
+  (a)       => 1,
+  (a, b)    => 2,
+  (a, b, c) => 3
 }
 ```
 
@@ -170,10 +170,10 @@ your case.
 ```js
 function argCheck {
   // Using arguments.length
-  case (a, b, c) if arguments.length == 3 => 1
+  (a, b, c) if arguments.length == 3 => 1,
   // Or matching undefined
-  case (a, b, undefined) => 2
-  case (a) => 1
+  (a, b, undefined) => 2,
+  (a) => 1
 }
 ```
 
@@ -185,8 +185,8 @@ you can do stuff like this:
 Foo.prototype = {
   // jQuery-style getter/setter
   val: function {
-    case () => this._val
-    case (val) => {
+    ()  => this._val,
+    val => {
       this._val = val;
       return this;
     }
@@ -199,13 +199,13 @@ If you want a catch-all, you should use a wildcard (`*`) instead.
 Match Keyword
 -------------
 
-Sparkler exports a `match` infix macro for doing easy matching on an expression.
+Sparkler exports a `match` macro for doing easy matching on an expression.
 
 ```js
 var num = 12;
-var isNumber = num match {
-  case Number => true
-  case * => false
+var isNumber = match num {
+  Number => true,
+  * => false
 };
 ```
 
@@ -222,8 +222,8 @@ a simple extractor that parses emails from strings:
 var Email = {
   // Factor out a matching function that we'll reuse.
   match: function {
-    case x @ String => x.match(/(.+)@(.+)/)
-    case *          => null
+    x @ String => x.match(/(.+)@(.+)/),
+    *          => null
   },
 
   // `hasInstance` is called on bare extractors.
@@ -257,38 +257,39 @@ Now we can use it in case arguments:
 ```js
 function doStuffWithEmails {
   // Calls `unapplyObject`
-  case Email{ domain: 'foo.com' } => ...
+  Email { domain: 'foo.com' } => ...,
   
   // Calls 'unapply'
-  case Email('foo', *) => ...
+  Email('foo', *) => ...,
 
   // Calls `hasInstance`
-  case Email => ...
+  Email => ...
 }
 ```
 
 If you don't implement `hasInstance`, Sparkler will fall back to a simple
 `instanceof` check.
 
-### adt.js
+### adt-simple
 
-[Adt.js](https://github.com/natefaubion/adt.js) is a library that implements
-the extractor protocol out of the box, and even has its own set of macros for
-defining data-types.
+[adt-simple](https://github.com/natefaubion/adt-simple) is a library that
+implements the extractor protocol out of the box, and even has its own set of
+macros for defining data-types.
 
 ```js
-$data Tree {
+var adt = require('adt-simple');
+union Tree {
   Empty,
   Node {
     value : *,
     left  : Tree,
     right : Tree
   }
-}
+} deriving (adt.Extractor)
 
 function treeFn {
-  case Empty => 'empty'
-  case Node{ value @ String } => 'string'
+  Empty => 'empty',
+  Node { value @ String } => 'string'
 }
 ```
 
@@ -303,21 +304,21 @@ require('sparkler/extend');
 
 // Date destructuring
 function dateStuff {
-  case Date{ month, year } => ...
+  Date { month, year } => ...
 }
 
 // RegExp destructuring
 function regexpStuff {
-  case RegExp{ flags: { 'i' }} => ...
+  RegExp { flags: { 'i' }} => ...
 }
 
 // Partial-function composition with `orElse`
 function partial {
-  case Foo => 'foo'
+  Foo => 'foo'
 }
 
 var total = partial.orElse(function {
-  case * => 'anything'
+  * => 'anything'
 })
 ```
 
