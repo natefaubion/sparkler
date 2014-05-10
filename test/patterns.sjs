@@ -269,6 +269,14 @@ describe 'Case patterns' {
     test 'failure' { go(1) =!= TypeError }
   }
 
+  it 'should match on the first successful case when ambiguous' {
+    function go {
+      (a)    => 1,
+      (a, b) => 2
+    }
+    test 'success' { go(1) === 1 }
+  }
+
   it 'should collect rest argument values' {
     function go {
       (a, b, ...c) => [a, b, c]

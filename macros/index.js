@@ -1061,7 +1061,10 @@ macro $sparkler__compile {
       function graft(bs) {
         for (var i = 1; i < bs.length; i++) {
           for (var j = i - 1; j >= 0; j--) {
-            if (bs[i].pattern === bs[j].pattern) {
+            if (bs[i].pattern === bs[j].pattern &&
+                !(!bs[j].branches &&
+                  (bs[j].pattern === '$' ||
+                   bs[j].pattern === '*'))) {
               if (bs[i].branches) {
                 if (!bs[j].branches) bs[j].branches = [];
                 bs[j].branches = bs[j].branches.concat(bs[i].branches);

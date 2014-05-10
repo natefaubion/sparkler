@@ -126,8 +126,8 @@ Argument Length
 ---------------
 
 In JavaScript, you can call a function with any number of arguments. Arguments
-that are not provided are just set to `undefined`. Sparkler preserves this
-behavior, so you have to be careful combining ambiguous cases.
+that are not provided are just set to `undefined`. Sparkler does not implicitly
+match on argument length.
 
 ```js
 function ambiguous {
@@ -137,32 +137,9 @@ function ambiguous {
 }
 ```
 
-The above function will __always__ return `3` no matter how many arguments you
-call it with. This is because all the argument cases share the same branching
-(of doing nothing). It basically gets compiled to this:
-
-```js
-function ambiguous(arg1, arg2, arg3) {
-  // The longest case on a branch gets compiled first.
-  var a = arg1, b = arg2, c = arg3;
-  return 3;
-
-  var a = arg1, b = arg2;
-  return 2;
-
-  var a = arg1;
-  return 1;
-}
-```
-
-And then optimized to this:
-
-```js
-function ambiguous(arg1, arg2, arg3) {
-  var a = arg1, b = arg2, c = arg3;
-  return 3;
-}
-```
+The above function will __always__ return `1` no matter how many arguments you
+call it with as the first case always matches. The subsequent cases are
+actually removed from the final output in the optimization phase.
 
 If you want to match on specific argument length, you need to add a guard to
 your case.
