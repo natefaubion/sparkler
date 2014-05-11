@@ -1408,7 +1408,7 @@ let function = macro {
 let match = macro {
   case { $ctx $op:expr { $body ... } } => {
     return #{
-      $sparkler__compile $ctx anonymous { $body ... }($op)
+      $sparkler__compile $ctx anonymous { $body ... }.call(this, $op)
     }
   }
   case { _ } => {

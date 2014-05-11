@@ -342,7 +342,7 @@ describe 'Case patterns' {
   // Match keyword
   // -------------
 
-  it 'should support the infix match keyword' {
+  it 'should support the match keyword' {
     function go(test) {
       return match test {
         x @ Number => x.toString(),
@@ -351,6 +351,19 @@ describe 'Case patterns' {
     }
 
     test 'success' { go(42) === '42' && go(true) === null }
+  }
+
+  it 'should preserve the lexical `this` context with match' {
+    var foo = {
+      y: 42,
+      go: function(x) {
+        return match x {
+          * => this.y
+        }
+      }
+    };
+
+    test 'success' { foo.go(1) === 42 }
   }
 
   // Regressions
