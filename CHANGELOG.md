@@ -1,3 +1,7 @@
+## 0.2.1 (2014-5-19)
+
+* Preserve `this` in match expressions
+
 ## 0.2.0 (2014-5-10)
 
 * The `case` keyword is no longer required. Cases are separated by commas.
