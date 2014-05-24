@@ -365,6 +365,19 @@ describe 'Case patterns' {
 
     test 'success' { foo.go(1) === 42 }
   }
+  
+  it 'should support the match as a statement' {
+    function go(test) {
+      match test {
+        x @ Number => x.toString(),
+        * => null
+      };
+      
+      return true;
+    }
+
+    test 'success' { go(42) === true }
+  }
 
   // Regressions
   // -----------
