@@ -366,17 +366,17 @@ describe 'Case patterns' {
     test 'success' { foo.go(1) === 42 }
   }
   
-  it 'should support the match as a statement' {
+  it 'should support the match keyword as a statement' {
     function go(test) {
+      var a = 1;
       match test {
-        x @ Number => x.toString(),
+        x @ Number => { a = test; }
         * => null
       };
-      
-      return true;
+      return a;
     }
 
-    test 'success' { go(42) === true }
+    test 'success' { go(42) === 42 }
   }
 
   // Regressions
