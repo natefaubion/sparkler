@@ -187,7 +187,8 @@ var isNumber = match num {
 ```
 
 This works by desugaring `match` into a self-invoking function with `num` as
-the argument.
+the argument. Consequently, `match` does not currently support `break`,
+`continue`, and early `return`.
 
 Custom Extractors
 -----------------
