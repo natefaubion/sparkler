@@ -1,3 +1,11 @@
+## 0.3.0 (2014-6-15)
+
+* Compiler completely rewritten with way better case optimizer
+* Removed "backtracking" compiler which was just a memoizing compiler and
+  hideous.
+* `match` can take multiple arguments
+* Fixed some edge case bugs
+
 ## 0.2.1 (2014-5-19)
 
 * Preserve `this` in match expressions
