@@ -130,11 +130,6 @@ macro $sparkler__compile {
         return a.concat(j, b);
       });
     }
-    function values(o) {
-      return Object.keys(o).map(function(k) {
-        return o[k];
-      });
-    }
     function matchesToken(tmpl, t) {
       if (t && t.length === 1) t = t[0];
       if (!t || tmpl.type && t.token.type !== tmpl.type 
@@ -813,7 +808,7 @@ macro $sparkler__compile {
           return r;
         } else {
           return r.concat(repeat(len - r.length, function(i) {
-            return Leaf(Ann(ctr(r.length - i + 1), {}));
+            return Leaf(Ann(ctr(r.length - i + 1), {}));
           }));
         }
       });

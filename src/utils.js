@@ -145,12 +145,6 @@ function join(j, arr) {
   });
 }
 
-function values(o) {
-  return Object.keys(o).map(function(k) {
-    return o[k];
-  });
-}
-
 function matchesToken(tmpl, t) {
   if (t && t.length === 1) t = t[0];
   if (!t || tmpl.type && t.token.type !== tmpl.type 
