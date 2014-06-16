@@ -1,3 +1,189 @@
+function input(stx, state) {
+  var pos = 0;
+  var inp = {
+    length: stx.length,
+    buffer: stx,
+    peek: peek,
+    take: take,
+    takeAPeek: takeAPeek,
+    back: back,
+    rest: rest,
+    state: state || {},
+  };
+
+  return inp;
+
+  function peek() {
+    if (arguments.length === 0) {
+      return [stx[pos]];
+    }
+    if (typeof arguments[0] === 'number') {
+      if (inp.length < arguments[0]) return;
+      return stx.slice(pos, pos + arguments[0]);
+    }
+    var res = [];
+    for (var i = 0, j = pos, t, a, m; i < arguments.length; i++) {
+      a = arguments[i];
+      t = stx[j++];
+      if (!matchesToken(a, t)) return;
+      res.push(t);
+    }
+    return res;
+  }
+
+  function take(len) {
+    if (len == null) len = 1;
+    var res = stx.slice(pos, pos + len);
+    pos += len;
+    inp.length -= len;
+    return res;
+  }
+
+  function takeAPeek() {
+    var res = peek.apply(null, arguments);
+    if (res) return take(res.length);
+  }
+
+  function back(len) {
+    if (len == null) len = 1;
+    pos -= len;
+    inp.length += len;
+  }
+
+  function rest() {
+    return stx.slice(pos);
+  }
+}
+
+function environment(vars) {
+  var env = _.extend({
+    set: set,
+    stash: stash,
+    retrieve: retrieve
+  }, vars);
+
+  return env;
+
+  function set(mod) {
+    return environment(extend({}, vars, mod));
+  }
+
+  function stash(k, v) {
+    assert(v, 'Expected value for ' + k);
+    var spec = {};
+    spec[k] = v;
+
+    return set({
+      refs: extend({}, vars.refs, spec)
+    });
+  }
+
+  function retrieve(k) {
+    assert(vars.refs.hasOwnProperty(k), 'Ref does not exist for ' + k);
+    return vars.refs[k];
+  }
+}
+
+function equals(x, y) {
+  if (x && x.equals) {
+    return x.equals(y);
+  }
+  if (Array.isArray(x)) {
+    return arrayEquals(x, y);
+  }
+  return x === y;
+}
+
+function arrayEquals(x, y) {
+  if (!Array.isArray(y) || x.length !== y.length) {
+    return false;
+  }
+  for (var i = 0; i < x.length; i++) {
+    if (!equals(x[i], y[i])) {
+      return false;
+    }
+  }
+  return true;
+}
+
+function extend(o) {
+  for (var i = 1; i < arguments.length; i++) {
+    var a = arguments[i];
+    var k = Object.keys(a);
+    for (var j = 0; j < k.length; j++) {
+      o[k[j]] = a[k[j]];
+    }
+  }
+  return o;
+}
+
+function constant(x) {
+  return function() {
+    return x;
+  };
+}
+
+function assert(cond, msg) {
+  if (!cond) throw new Error('Assertion failure: ' + msg);
+}
+
+function concat(x, y) {
+  return x.concat(y);
+}
+
+function repeat(len, f) {
+  if (!len) return [];
+  var res = Array(len);
+  for (var i = 0; i < len; i++) res[i] = f(i);
+  return res;
+}
+
+function join(j, arr) {
+  if (!arr.length) return [];
+  return arr.reduce(function(a, b) {
+    return a.concat(j, b);
+  });
+}
+
+function values(o) {
+  return Object.keys(o).map(function(k) {
+    return o[k];
+  });
+}
+
+function matchesToken(tmpl, t) {
+  if (t && t.length === 1) t = t[0];
+  if (!t || tmpl.type && t.token.type !== tmpl.type 
+         || tmpl.value && t.token.value !== tmpl.value) return false;
+  return true;
+}
+
+function prependReturn(stx) {
+  if (matchesToken({ type: T.Keyword, value: 'return' }, stx[0])) {
+    return stx;
+  }
+  var ret = makeKeyword('return', stx[0])
+  return [ret].concat(stx);
+}
+
+function forceReturn(stx) {
+  var needsReturn = true;
+  var inp = input(stx);
+  var res = [], toks;
+  while (inp.length) {
+    if (toks = inp.takeAPeek({ type: T.Keyword }, PARENS, RETURN)) {
+      res = res.concat(toks);
+    } else if (toks = inp.takeAPeek(RETURN)) {
+      needsReturn = false;
+      res.push(toks[0]);
+    } else {
+      res.push(inp.take()[0]);
+    }
+  }
+  if (needsReturn) res.push(makeKeyword('return', here));
+  return res;
+}
+
 function syntaxError(tok, err, info) {
   if (!err) err = 'Unexpected token';
   if (info) err += ' (' + info + ')';
@@ -6,139 +192,72 @@ function syntaxError(tok, err, info) {
 
 var refId = 0;
 
-function makeRef(rhs, ctx) {
+function makeRef(ctx) {
   if (!ctx) ctx = here;
-  var name = makeIdent('r' + (refId++), ctx);
-  var stx = makeAssign(name, rhs, ctx);
-  return {
-    name: [name],
-    stx: stx
-  };
+  return [makeIdent('r' + (refId++), ctx)];
 }
 
-function makeAssign(name, rhs, ctx) {
+function makeAssign(ident, rhs, ctx) {
   if (!ctx) ctx = here;
-  return _.flatten([
-    makeKeyword('var', ctx), name, rhs ? [makePunc('=', ctx), rhs] : [], makePunc(';', ctx)
-  ]);
-}
-
-function makeArgument(i, env, ctx) {
-  if (!ctx) ctx = here;
-  if (env.argNames.length) {
-    return { name: [env.argNames[i]] };
-  }
-
-  var index = i < 0
-    ? [makeIdent('arguments', ctx), makePunc('.', ctx), makeIdent('length', ctx), 
-       makePunc('-', ctx), makeValue(Math.abs(i), ctx)]
-    : [makeValue(i, ctx)];
-
-  return makeRef([makeIdent('arguments', ctx), makeDelim('[]', index, ctx)]);
-}
-
-function indexOfRest(patt) {
-  for (var i = 0; i < patt.children.length; i++) {
-    if (patt.children[i].type === 'rest') return i;
-  }
-  return -1;
-}
-
-function joinPatterns(j, cs) {
-  return cs.map(function(c) { return c.pattern }).join(j);
-}
-
-function joinRefs(refs) {
-  if (!refs.length) return [];
-  refs = _.flatten(intercalate(makePunc(',', here), refs.map(function(r) {
-    return r.stx ? r.stx.slice(1, -1) : r.slice(1, -1);
-  })));
-  return [makeKeyword('var', here)].concat(refs, makePunc(';', here));
-}
-
-function joinAlternates(alts) {
-  if (alts.length === 1) return alts[0][2].token.inner;
-  return alts.reduce(function(acc, alt, i) {
-    if (i === alts.length - 1) {
-      alt = [makeKeyword('else', here)].concat(alt[2]);
-    } else if (i > 0) {
-      alt = [makeKeyword('else', here)].concat(alt);
-    }
-    return acc.concat(alt);
-  }, []);
-}
-
-function findIdents(patt) {
-  return patt.reduce(function(a, p) {
-    if (p.type === 'identifier' || p.type === 'binder') a = a.concat(p);
-    if (p.children) a = a.concat(findIdents(p.children));
-    return a;
-  }, []);
+  return [makeKeyword('var', ctx), ident].concat(
+    rhs ? [makePunc('=', ctx)].concat(rhs) : [],
+    makePunc(';', ctx)
+  );
 }
 
 function replaceIdents(guard, names) {
-  names = names.reduce(function(acc, n) {
-    acc[n[0]] = n[1].name ? n[1].name[0] : n[1].stx[0];
-    return acc;
-  }, {});
-
   function traverse(arr) {
+    var stx = [];
     for (var i = 0, s; s = arr[i]; i++) {
-      if (s.token.type === T.Delimiter) traverse(s.token.inner);
-      if (s.token.type === T.Identifier && 
-          names.hasOwnProperty(s.token.value)) {
-        arr.splice(i, 1, names[s.token.value]);
+      if (s.token.type === T.Delimiter) {
+        var clone = cloneSyntax(s);
+        s.token.inner = traverse(s.token.inner);
+        stx.push(s);
+      } else if (s.token.type === T.Identifier && 
+                 names.hasOwnProperty(s.token.value)) {
+        stx.push.apply(stx, names[s.token.value]);
+      } else {
+        stx.push(s);
       }
     }
-    return arr;
+    return stx;
   }
-
   return traverse(guard);
 }
 
-function wrapBlock(toks) {
-  if (matchesToken(BRACES, toks[0])) {
-    return toks;
-  }
-  return [makeDelim('{}', toks, here)];
+// HACK! Sweet.js needs to expose syntax cloning to macros
+function cloneSyntax(stx) {
+  function F(){}
+  F.prototype = stx.prototype;
+  F.prototype.constructor = stx.prototype.constructor;
+  var s = new F();
+  extend(s, stx);
+  s.token = extend({}, s.token);
+  return s;
 }
 
-function intercalate(x, a) {
-  var arr = [];
-  for (var i = 0; i < a.length; i++) {
-    if (i > 0) arr.push(x);
-    arr.push(a[i]);
-  }
-  return arr;
-}
+// DEBUG
+// -----
 
-function shouldStateBacktrack(args) {
-  if (args.length === 1) return false;
-  return shouldArgBacktrack(args[0]);
-}
+// function stxToString(stx) {
+//   return stx.map(unwrapSyntax).join(' ');
+// }
 
-function shouldArgBacktrack(arg) {
-  var patt = arg.pattern;
-  var child = arg.children[0];
-  if (patt === '$' || patt === '*' || patt === '...' ||
-      child.type === 'literal' && !matchesToken(STRING, child.stx[0])) return false;
-  return true;
-}
+// function stripAnn(t) {
+//   if (t && t.ann) {
+//     if (t.ann.stx) t.ann.stx = stxToString(t.ann.stx);
+//     if (t.ann.extractor) t.ann.extractor = stxToString(t.ann.extractor);
+//     if (t.ann.idents) t.ann.idents = t.ann.idents.map(stxToString);
+//     if (t.ann.stashes) t.ann.stashed = t.ann.stashed.map(stxToString);
+//   }
+//   if (t && t.node) {
+//     stripAnn(t.node);
+//   }
+//   if (t && t.branches) {
+//     t.branches.map(stripAnn);
+//   }
+//   return t;
+// }
 
-function shouldCompileBacktrack(cases) {
-  var len = cases.reduce(function(acc, c) {
-    return c.args.children.length > acc ? c.args.children.length : acc;
-  }, 0);
-
-  for (var j = 0; j < len; j++) {
-    var patts = [];
-    for (var i = 0, c; c = cases[i]; i++) {
-      var arg = c.args.children[j];
-      if (arg && patts.indexOf(arg.pattern) > 0 && shouldArgBacktrack(arg)) {
-        return true;
-      }
-      patts.unshift(arg ? arg.pattern : null);
-    }
-  }
-  return false;
-}
+// var _inspect = require('util').inspect;
+// var inspect = function(x, y) { return _inspect(x, null, y || 1000) };

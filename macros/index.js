@@ -4,216 +4,7 @@ macro $sparkler__compile {
     var here = #{ here };
     var fnName = #{ $name };
 
-    let letstx = macro {
-      case { $mac $id:ident $punc = $rhs:expr } => {
-        var mac = #{ $mac };
-        var id  = #{ $id };
-        var val = #{ $val };
-        var arg = #{ $($rhs) };
-        var punc = #{ $punc };
-        var here = #{ here };
-        if (punc[0].token.type !== parser.Token.Punctuator ||
-            punc[0].token.value !== '...') {
-          throw new SyntaxError('Unexpected token: ' + punc[0].token.value +
-                                ' (expected ...)');
-        }
-        if (id[0].token.value[0] !== '$') {
-          throw new SyntaxError('Syntax identifiers must start with $: ' + 
-                                id[0].token.value);
-        }
-        return [
-          makeIdent('match', mac),
-          makePunc('.', here),
-          makeIdent('patternEnv', here),
-          makeDelim('[]', [makeValue(id[0].token.value, here)], here),
-          makePunc('=', here),
-          makeDelim('{}', [
-            makeIdent('level', here), makePunc(':', here), makeValue(1, here), makePunc(',', here),
-            makeIdent('match', here), makePunc(':', here), makeDelim('()', #{
-              (function(exp) {
-                return exp.length
-                  ? exp.map(function(t) { return { level: 0, match: [t] } })
-                  : [{ level: 0, match: [] }];
-              })
-            }, here), makeDelim('()', arg, here)
-          ], here)
-        ];
-      }
-      case { $mac $id:ident = $rhs:expr } => {
-        var mac = #{ $mac };
-        var id  = #{ $id };
-        var val = #{ $val };
-        var arg = #{ $($rhs) };
-        var here = #{ here };
-        if (id[0].token.value[0] !== '$') {
-          throw new SyntaxError('Syntax identifiers must start with $: ' + 
-                                id[0].token.value);
-        }
-        return [
-          makeIdent('match', mac),
-          makePunc('.', here),
-          makeIdent('patternEnv', here),
-          makeDelim('[]', [makeValue(id[0].token.value, here)], here),
-          makePunc('=', here),
-          makeDelim('{}', [
-            makeIdent('level', here), makePunc(':', here), makeValue(0, here), makePunc(',', here),
-            makeIdent('match', here), makePunc(':', here), arg[0]
-          ], here)
-        ];
-      }
-    }
-    function syntaxError(tok, err, info) {
-      if (!err) err = 'Unexpected token';
-      if (info) err += ' (' + info + ')';
-      throwSyntaxError('sparkler', err, tok);
-    }
-    var refId = 0;
-    function makeRef(rhs, ctx) {
-      if (!ctx) ctx = here;
-      var name = makeIdent('r' + (refId++), ctx);
-      var stx = makeAssign(name, rhs, ctx);
-      return {
-        name: [name],
-        stx: stx
-      };
-    }
-    function makeAssign(name, rhs, ctx) {
-      if (!ctx) ctx = here;
-      return _.flatten([
-        makeKeyword('var', ctx), name, rhs ? [makePunc('=', ctx), rhs] : [], makePunc(';', ctx)
-      ]);
-    }
-    function makeArgument(i, env, ctx) {
-      if (!ctx) ctx = here;
-      if (env.argNames.length) {
-        return { name: [env.argNames[i]] };
-      }
-      var index = i < 0
-        ? [makeIdent('arguments', ctx), makePunc('.', ctx), makeIdent('length', ctx), 
-           makePunc('-', ctx), makeValue(Math.abs(i), ctx)]
-        : [makeValue(i, ctx)];
-      return makeRef([makeIdent('arguments', ctx), makeDelim('[]', index, ctx)]);
-    }
-    function indexOfRest(patt) {
-      for (var i = 0; i < patt.children.length; i++) {
-        if (patt.children[i].type === 'rest') return i;
-      }
-      return -1;
-    }
-    function joinPatterns(j, cs) {
-      return cs.map(function(c) { return c.pattern }).join(j);
-    }
-    function joinRefs(refs) {
-      if (!refs.length) return [];
-      refs = _.flatten(intercalate(makePunc(',', here), refs.map(function(r) {
-        return r.stx ? r.stx.slice(1, -1) : r.slice(1, -1);
-      })));
-      return [makeKeyword('var', here)].concat(refs, makePunc(';', here));
-    }
-    function joinAlternates(alts) {
-      if (alts.length === 1) return alts[0][2].token.inner;
-      return alts.reduce(function(acc, alt, i) {
-        if (i === alts.length - 1) {
-          alt = [makeKeyword('else', here)].concat(alt[2]);
-        } else if (i > 0) {
-          alt = [makeKeyword('else', here)].concat(alt);
-        }
-        return acc.concat(alt);
-      }, []);
-    }
-    function findIdents(patt) {
-      return patt.reduce(function(a, p) {
-        if (p.type === 'identifier' || p.type === 'binder') a = a.concat(p);
-        if (p.children) a = a.concat(findIdents(p.children));
-        return a;
-      }, []);
-    }
-    function replaceIdents(guard, names) {
-      names = names.reduce(function(acc, n) {
-        acc[n[0]] = n[1].name ? n[1].name[0] : n[1].stx[0];
-        return acc;
-      }, {});
-      function traverse(arr) {
-        for (var i = 0, s; s = arr[i]; i++) {
-          if (s.token.type === T.Delimiter) traverse(s.token.inner);
-          if (s.token.type === T.Identifier && 
-              names.hasOwnProperty(s.token.value)) {
-            arr.splice(i, 1, names[s.token.value]);
-          }
-        }
-        return arr;
-      }
-      return traverse(guard);
-    }
-    function wrapBlock(toks) {
-      if (matchesToken(BRACES, toks[0])) {
-        return toks;
-      }
-      return [makeDelim('{}', toks, here)];
-    }
-    function intercalate(x, a) {
-      var arr = [];
-      for (var i = 0; i < a.length; i++) {
-        if (i > 0) arr.push(x);
-        arr.push(a[i]);
-      }
-      return arr;
-    }
-    function shouldStateBacktrack(args) {
-      if (args.length === 1) return false;
-      return shouldArgBacktrack(args[0]);
-    }
-    function shouldArgBacktrack(arg) {
-      var patt = arg.pattern;
-      var child = arg.children[0];
-      if (patt === '$' || patt === '*' || patt === '...' ||
-          child.type === 'literal' && !matchesToken(STRING, child.stx[0])) return false;
-      return true;
-    }
-    function shouldCompileBacktrack(cases) {
-      var len = cases.reduce(function(acc, c) {
-        return c.args.children.length > acc ? c.args.children.length : acc;
-      }, 0);
-      for (var j = 0; j < len; j++) {
-        var patts = [];
-        for (var i = 0, c; c = cases[i]; i++) {
-          var arg = c.args.children[j];
-          if (arg && patts.indexOf(arg.pattern) > 0 && shouldArgBacktrack(arg)) {
-            return true;
-          }
-          patts.unshift(arg ? arg.pattern : null);
-        }
-      }
-      return false;
-    }
-    var T        = parser.Token;
-    var EQ       = { type: T.Punctuator, value: '=' };
-    var ARROW    = { type: T.Punctuator, value: '=>' };
-    var REST     = { type: T.Punctuator, value: '...' };
-    var COLON    = { type: T.Punctuator, value: ':' };
-    var AT       = { type: T.Punctuator, value: '@' };
-    var COMMA    = { type: T.Punctuator, value: ',' };
-    var PERIOD   = { type: T.Punctuator, value: '.' };
-    var WILDCARD = { type: T.Punctuator, value: '*' };
-    var SCOLON   = { type: T.Punctuator, value: ';' };
-    var UNDEF    = { type: T.Identifier, value: 'undefined' };
-    var VOID     = { type: T.Keyword,    value: 'void' };
-    var CASE     = { type: T.Keyword,    value: 'case' };
-    var VAR      = { type: T.Keyword,    value: 'var' };
-    var IF       = { type: T.Keyword,    value: 'if' };
-    var ELSE     = { type: T.Keyword,    value: 'else' };
-    var FOR      = { type: T.Keyword,    value: 'for' };
-    var RETURN   = { type: T.Keyword,    value: 'return' };
-    var CONTINUE = { type: T.Keyword,    value: 'continue' };
-    var BRACKETS = { type: T.Delimiter,  value: '[]' };
-    var PARENS   = { type: T.Delimiter,  value: '()' };
-    var BRACES   = { type: T.Delimiter,  value: '{}' };
-    var IDENT    = { type: T.Identifier };
-    var BOOL     = { type: T.BooleanLiteral };
-    var NULL     = { type: T.NullLiteral };
-    var STRING   = { type: T.StringLiteral };
-    var NUMBER   = { type: T.NumericLiteral };
-    function input(stx) {
+    function input(stx, state) {
       var pos = 0;
       var inp = {
         length: stx.length,
@@ -222,7 +13,8 @@ macro $sparkler__compile {
         take: take,
         takeAPeek: takeAPeek,
         back: back,
-        rest: rest
+        rest: rest,
+        state: state || {},
       };
       return inp;
       function peek() {
@@ -243,9 +35,10 @@ macro $sparkler__compile {
         return res;
       }
       function take(len) {
-        var res = stx.slice(pos, pos + (len || 1));
-        pos += len || 1;
-        inp.length -= len || 1;
+        if (len == null) len = 1;
+        var res = stx.slice(pos, pos + len);
+        pos += len;
+        inp.length -= len;
         return res;
       }
       function takeAPeek() {
@@ -253,40 +46,374 @@ macro $sparkler__compile {
         if (res) return take(res.length);
       }
       function back(len) {
-        pos -= len || 1;
-        inp.length += len || 1;
+        if (len == null) len = 1;
+        pos -= len;
+        inp.length += len;
       }
       function rest() {
         return stx.slice(pos);
       }
     }
+    function environment(vars) {
+      var env = _.extend({
+        set: set,
+        stash: stash,
+        retrieve: retrieve
+      }, vars);
+      return env;
+      function set(mod) {
+        return environment(extend({}, vars, mod));
+      }
+      function stash(k, v) {
+        assert(v, 'Expected value for ' + k);
+        var spec = {};
+        spec[k] = v;
+        return set({
+          refs: extend({}, vars.refs, spec)
+        });
+      }
+      function retrieve(k) {
+        assert(vars.refs.hasOwnProperty(k), 'Ref does not exist for ' + k);
+        return vars.refs[k];
+      }
+    }
+    function equals(x, y) {
+      if (x && x.equals) {
+        return x.equals(y);
+      }
+      if (Array.isArray(x)) {
+        return arrayEquals(x, y);
+      }
+      return x === y;
+    }
+    function arrayEquals(x, y) {
+      if (!Array.isArray(y) || x.length !== y.length) {
+        return false;
+      }
+      for (var i = 0; i < x.length; i++) {
+        if (!equals(x[i], y[i])) {
+          return false;
+        }
+      }
+      return true;
+    }
+    function extend(o) {
+      for (var i = 1; i < arguments.length; i++) {
+        var a = arguments[i];
+        var k = Object.keys(a);
+        for (var j = 0; j < k.length; j++) {
+          o[k[j]] = a[k[j]];
+        }
+      }
+      return o;
+    }
+    function constant(x) {
+      return function() {
+        return x;
+      };
+    }
+    function assert(cond, msg) {
+      if (!cond) throw new Error('Assertion failure: ' + msg);
+    }
+    function concat(x, y) {
+      return x.concat(y);
+    }
+    function repeat(len, f) {
+      if (!len) return [];
+      var res = Array(len);
+      for (var i = 0; i < len; i++) res[i] = f(i);
+      return res;
+    }
+    function join(j, arr) {
+      if (!arr.length) return [];
+      return arr.reduce(function(a, b) {
+        return a.concat(j, b);
+      });
+    }
+    function values(o) {
+      return Object.keys(o).map(function(k) {
+        return o[k];
+      });
+    }
+    function matchesToken(tmpl, t) {
+      if (t && t.length === 1) t = t[0];
+      if (!t || tmpl.type && t.token.type !== tmpl.type 
+             || tmpl.value && t.token.value !== tmpl.value) return false;
+      return true;
+    }
+    function prependReturn(stx) {
+      if (matchesToken({ type: T.Keyword, value: 'return' }, stx[0])) {
+        return stx;
+      }
+      var ret = makeKeyword('return', stx[0])
+      return [ret].concat(stx);
+    }
+    function forceReturn(stx) {
+      var needsReturn = true;
+      var inp = input(stx);
+      var res = [], toks;
+      while (inp.length) {
+        if (toks = inp.takeAPeek({ type: T.Keyword }, PARENS, RETURN)) {
+          res = res.concat(toks);
+        } else if (toks = inp.takeAPeek(RETURN)) {
+          needsReturn = false;
+          res.push(toks[0]);
+        } else {
+          res.push(inp.take()[0]);
+        }
+      }
+      if (needsReturn) res.push(makeKeyword('return', here));
+      return res;
+    }
+    function syntaxError(tok, err, info) {
+      if (!err) err = 'Unexpected token';
+      if (info) err += ' (' + info + ')';
+      throwSyntaxError('sparkler', err, tok);
+    }
+    var refId = 0;
+    function makeRef(ctx) {
+      if (!ctx) ctx = here;
+      return [makeIdent('r' + (refId++), ctx)];
+    }
+    function makeAssign(ident, rhs, ctx) {
+      if (!ctx) ctx = here;
+      return [makeKeyword('var', ctx), ident].concat(
+        rhs ? [makePunc('=', ctx)].concat(rhs) : [],
+        makePunc(';', ctx)
+      );
+    }
+    function replaceIdents(guard, names) {
+      function traverse(arr) {
+        var stx = [];
+        for (var i = 0, s; s = arr[i]; i++) {
+          if (s.token.type === T.Delimiter) {
+            var clone = cloneSyntax(s);
+            s.token.inner = traverse(s.token.inner);
+            stx.push(s);
+          } else if (s.token.type === T.Identifier && 
+                     names.hasOwnProperty(s.token.value)) {
+            stx.push.apply(stx, names[s.token.value]);
+          } else {
+            stx.push(s);
+          }
+        }
+        return stx;
+      }
+      return traverse(guard);
+    }
+    function cloneSyntax(stx) {
+      function F(){}
+      F.prototype = stx.prototype;
+      F.prototype.constructor = stx.prototype.constructor;
+      var s = new F();
+      extend(s, stx);
+      s.token = extend({}, s.token);
+      return s;
+    }
+    function Data(t, args) {
+      this.tag  = t;
+      this.args = args;
+    }
+    Data.prototype = {
+      unapply: function(f) {
+        return f ? f.apply(null, this.args) : this.args.slice();
+      },
+      equals: function(that) {
+        return equalsTag.call(this, that)
+            && this.args.every(function(a, i) { return equals(a, that.args[i]) });
+      }
+    };
+    function data(t, fs, proto) {
+      var D = function(){};
+      D.prototype = Data.prototype;
+      var Ctr = function(args) {
+        Data.call(this, t, args);
+      };
+      Ctr.prototype = new D();
+      Ctr.prototype.constructor = Ctr;
+      Ctr.prototype['is' + t] = true;
+      extend(Ctr.prototype, proto || {});
+      fs.forEach(function(f, i) {
+        Object.defineProperty(Ctr.prototype, f, {
+          writeable: false,
+          configurable: false,
+          get: function() {
+            return this.args[i];
+          }
+        });
+      });
+      var arity = fs.length;
+      return arity === 0 ? function() { return new Ctr([]) }
+           : arity === 1 ? function(x) { return new Ctr([x]) }
+           : arity === 2 ? function(x, y) { return new Ctr([x, y]) }
+           : function() {
+               var args = Array(arguments.length);
+               for (var i = 0; i < arguments.length; i++) {
+                 args[i] = arguments[i];
+               }
+               return new Ctr(args);
+             };
+    }
+    var Fun        = data('Fun',        ['length']);
+    var Args       = data('Args',       []);
+    var Arr        = data('Arr',        []);
+    var Unapply    = data('Unapply',    []);
+    var UnapplyObj = data('UnapplyObj', []);
+    var Obj        = data('Obj',        []);
+    var Wild       = data('Wild',       []);
+    var Undef      = data('Undef',      []);
+    var Unit       = data('Unit',       []);
+    var Inst       = data('Inst',       []);
+    var Lit        = data('Lit',        ['lit']);
+    var Extractor  = data('Extractor',  ['name']);
+    var Arg        = data('Arg',        ['index']);
+    var Len        = data('Len',        ['length']);
+    var LenMin     = data('LenMin',     ['length']);
+    var Index      = data('Index',      ['index']);
+    var IndexNoop  = data('IndexNoop',  ['index']);
+    var KeyVal     = data('KeyVal',     ['key']);
+    var KeyIn      = data('KeyIn',      ['key']);
+    var KeyNoop    = data('KeyNoop',    ['key']);
+    var Rest       = data('Rest',       ['pattern', 'names']);
+    var RestEnd    = data('RestEnd',    []);
+    var Case       = data('Case',       []);
+    var Guard      = data('Guard',      [], { equals: constant(false) });
+    var Body       = data('Body',       [], { equals: constant(false) });
+    var Branch     = data('Branch',     ['node', 'branches']);
+    var Leaf       = data('Leaf',       ['node']);
+    var Ann        = data('Ann',        ['value', 'ann'], { equals: equalsFst });
+    var Group      = data('Group',      ['node', 'matrix', 'stack']);
+    var Frame      = data('Frame',      ['matrix', 'level'], { concat: frameConcat });
+    function frameConcat(b) {
+      assert(this.level === b.level, 'Frame levels must match');
+      return Frame(this.matrix.concat(b.matrix), this.level);
+    }
+    function equalsTag(that) {
+      return that && that.tag === this.tag;
+    }
+    function equalsFst(that) {
+      return equalsTag.call(this, that) && equals(this.args[0], that.args[0]);
+    }
+    function optimizeSyntax(stx) {
+      var inp = input(stx);
+      var res = [];
+      var toks, opt;
+      while (inp.length) {
+        if (inp.peek()[0].userCode) {
+          res.push(inp.take()[0]);
+        } else if (toks = inp.takeAPeek({ type: T.Keyword }, PARENS, BRACES)) {
+          if (matchesToken(IF, toks[0])) {
+            opt = optimizeIfs(toks);
+          } else if (matchesToken(FOR, toks[0])) {
+            opt = optimizeFors(toks);
+          } else {
+            toks[2].token.inner = optimizeSyntax(toks[2].token.inner);
+            opt = toks;
+          }
+          res = res.concat(opt);
+        } else if (toks = inp.takeAPeek(BRACES)) {
+          res = res.concat(optimizeSyntax(toks[0].token.inner));
+          break;
+        } else if (toks = inp.takeAPeek(CONTINUE)) {
+          res.push(toks[0]);
+          break;
+        } else {
+          res.push(inp.take()[0]);
+        }
+      }
+      return res;
+    }
+    function optimizeIfs(stx) {
+      var pred  = stx[1];
+      var block = stx[2];
+      var inner = input(optimizeSyntax(block.token.inner));
+      var toks  = inner.takeAPeek(IF, PARENS, BRACES);
+      if (toks && inner.length === 0) {
+        pred.token.inner = [makeDelim('()', pred.token.inner, pred), makePunc('&&', here), toks[1]];
+        stx[2] = toks[2];
+      } else if (toks) {
+        block.token.inner = toks.concat(inner.rest());
+      } else {
+        block.token.inner = inner.rest();
+      }
+      return stx;
+    }
+    function optimizeFors(stx) {
+      var inner = optimizeSyntax(stx[2].token.inner);
+      for (var i = 0, t; t = inner[i]; i++) {
+        if (matchesToken({ type: T.Keyword, value: 'continue' }, t)) {
+          inner = inner.slice(0, i);
+          break;
+        }
+      }
+      stx[2].token.inner = inner;
+      return stx;
+    }
+    var T          = parser.Token;
+    var EQ         = { type: T.Punctuator, value: '=' };
+    var ARROW      = { type: T.Punctuator, value: '=>' };
+    var REST       = { type: T.Punctuator, value: '...' };
+    var COLON      = { type: T.Punctuator, value: ':' };
+    var AT         = { type: T.Punctuator, value: '@' };
+    var COMMA      = { type: T.Punctuator, value: ',' };
+    var PERIOD     = { type: T.Punctuator, value: '.' };
+    var WILDCARD   = { type: T.Punctuator, value: '*' };
+    var SCOLON     = { type: T.Punctuator, value: ';' };
+    var UNDEF      = { type: T.Identifier, value: 'undefined' };
+    var VOID       = { type: T.Keyword,    value: 'void' };
+    var CASE       = { type: T.Keyword,    value: 'case' };
+    var VAR        = { type: T.Keyword,    value: 'var' };
+    var IF         = { type: T.Keyword,    value: 'if' };
+    var ELSE       = { type: T.Keyword,    value: 'else' };
+    var FOR        = { type: T.Keyword,    value: 'for' };
+    var RETURN     = { type: T.Keyword,    value: 'return' };
+    var CONTINUE   = { type: T.Keyword,    value: 'continue' };
+    var BRACKETS   = { type: T.Delimiter,  value: '[]' };
+    var PARENS     = { type: T.Delimiter,  value: '()' };
+    var BRACES     = { type: T.Delimiter,  value: '{}' };
+    var IDENT      = { type: T.Identifier };
+    var BOOL       = { type: T.BooleanLiteral };
+    var NULL       = { type: T.NullLiteral };
+    var STRING     = { type: T.StringLiteral };
+    var NUMBER     = { type: T.NumericLiteral };
+    var PUNC       = { type: T.Punctuator };
     function parse(stx) {
       var inp = input(stx);
       var cases = [];
-      var patts = {};
+      var patts = [];
+      var i = 0;
       while (inp.length) {
         var list = scanArgumentList(inp);
-        var first = list[0]; 
+        var first = list[0];
         var guard = scanGuard(inp);
         var body = scanCaseBody(inp);
-        var args = parseArgumentList(input(list));
+        var inp2 = input(list, { idents: [] });
+        var args = parseArgumentList(inp2);
         if (!guard.length) {
-          if (patts.hasOwnProperty(args.pattern)) {
-            syntaxError(first, 'Duplicate argument case: (' + args.pattern + ')');
+          if (patts.some(function(p) { return p.equals(args) })) {
+            syntaxError(first, 'Duplicate case');
           } else {
-            patts[args.pattern] = true;
+            patts.push(args);
           }
         }
-        cases.push({
-          args: args,
-          guard: guard,
-          body: body.map(function(b) {
-            b.userCode = true;
-            return b;
-          })
+        body.forEach(function(b) {
+          b.userCode = true;
         });
+        cases.push(args.unapply(function(v, bs) {
+          var b = Leaf(Ann(Body(), { stx: body, stashed: inp2.state.idents }));
+          var g = guard.length
+            ? Branch(Ann(Guard(), { stx: guard, stashed: inp2.state.idents }), [b])
+            : b;
+          return Branch(Ann(Case(), { index: i++ }), [Branch(v, bs), g]);
+        }));
       }
-      return cases;
+      var len = Math.max.apply(null, cases.map(function(c) {
+        return c.branches[0].node.ann.length;
+      }));
+      cases.forEach(function(c) {
+        c.branches[0].node.ann.length = len;
+      });
+      return Branch(Ann(Fun(len), {}), cases);
     }
     function scanArgumentList(inp) {
       var res = inp.takeAPeek(PARENS);
@@ -333,40 +460,27 @@ macro $sparkler__compile {
       }
       return prependReturn(res);
     }
-    function matchesToken(tmpl, t) {
-      if (t && t.length === 1) t = t[0];
-      if (!t || tmpl.type && t.token.type !== tmpl.type 
-             || tmpl.value && t.token.value !== tmpl.value) return false;
-      return true;
-    }
-    function prependReturn(stx) {
-      if (matchesToken({ type: T.Keyword, value: 'return' }, stx[0])) {
-        return stx;
-      }
-      var ret = makeKeyword('return', stx[0])
-      return [ret].concat(stx);
-    }
-    function forceReturn(stx) {
-      var needsReturn = true;
-      var inp = input(stx);
-      var res = [], toks;
-      while (inp.length) {
-        if (toks = inp.takeAPeek({ type: T.Keyword }, PARENS, RETURN)) {
-          res = res.concat(toks);
-        } else if (toks = inp.takeAPeek(RETURN)) {
-          needsReturn = false;
-          res.push(toks[0]);
-        } else {
-          res.push(inp.take()[0]);
-        }
-      }
-      if (needsReturn) res.push(makeKeyword('return', here));
-      return res;
-    }
     function parseArgumentList(inp) {
-      return inp.length
-        ? $arguments(parseRestPatterns(inp).map($argument))
-        : $arguments([$unit()]);
+      if (!inp.length) {
+        return Branch(Ann(Args(), { length: 0 }),
+                      [Branch(Ann(Arg(0), {}),
+                              [Leaf(Ann(Unit(), {}))])]);
+      }
+      var len = 0;
+      var args = parseRestPatterns(inp).map(function(p, i, ps) {
+        if (p.node.value.isRest) {
+          if (i === ps.length - 1) {
+            p.node.ann.argRest = true;
+            p.node.ann.start = i;
+          } else {
+            syntaxError(p.args[1].stx, 'Rest arguments are only allowed at the end');
+          }
+        } else {
+          len++;
+        }
+        return Branch(Ann(Arg(i), {}), [p]);
+      });
+      return Branch(Ann(Args(), { length: len }), args);
     }
     function parseRestPatterns(inp) {
       return commaSeparated(parseRestPattern, inp, multiRestCallback());
@@ -386,29 +500,35 @@ macro $sparkler__compile {
     }
     function parseRest(inp) {
       var res = inp.takeAPeek(REST);
-      if (res) return $rest(res, parsePattern(inp) || $wildcard());
+      if (res) {
+        var len = inp.state.idents.length;
+        var patt = parsePattern(inp);
+        var idents = inp.state.idents.slice(len);
+        var names = idents.map(unwrapSyntax);
+        return Leaf(Ann(Rest(patt || Leaf(Ann(Wild(), {})), names),
+                        { stx: res, stashed: inp.state.idents.slice(len) }));
+      }
     }
     function parseWildcard(inp) {
       var res = inp.takeAPeek(WILDCARD);
-      if (res) return $wildcard(res);
+      if (res) return Leaf(Ann(Wild(), { stx: res }));
     }
     function parseUndefined(inp) {
       var res = inp.takeAPeek(VOID);
       if (res) {
-        var stx = inp.peek(1);
-        if (stx[0].token.type !== T.Punctuator) {
-          inp.take(1);
-          return $undefined(res);
+        if (!inp.peek(PUNC)) {
+          return Leaf(Ann(Undef(), { stx: res.concat(inp.take(1)) }));
         }
       }
       res = inp.takeAPeek(UNDEF);
-      if (res) return $undefined(res);
+      if (res) return Leaf(Ann(Undef(), { stx: res }));
     }
     function parseLiteral(inp) {
       var stx = inp.peek(1);
       if (matchesToken(NULL, stx) || matchesToken(NUMBER, stx) ||
           matchesToken(STRING, stx) || matchesToken(BOOL, stx)) {
-        return $literal(inp.take(1));
+        var res = inp.take(1);
+        return Leaf(Ann(Lit(unwrapSyntax(res)), { stx: res }));
       }
     }
     function parseExtractor(inp) {
@@ -425,62 +545,115 @@ macro $sparkler__compile {
         var name = stx[0].token.value;
         if (name[0].toUpperCase() === name[0] &&
             name[0] !== '$' && name[0] !== '_') {
-          var ext = parseUnapply(inp) || parseObject(inp);
-          return $extractor(stx.reverse(), ext);
+          var ext = parseUnapply(inp) || parseUnapplyObj(inp) || Leaf(Ann(Inst(), {}));
+          var nameStr = stx.reverse().map(unwrapSyntax).join('');
+          extend(ext.node.ann, { extractor: stx, name: nameStr });
+          return Branch(Ann(Extractor(nameStr), { stx: stx }), [ext]);
         } else {
           inp.back(stx.length);
         }
       }
     }
-    function parseArray(inp) {
-      var stx = inp.takeAPeek(BRACKETS);
+    function parseArrayLike(delim, ctr, inp) {
+      var stx = inp.takeAPeek(delim);
       if (stx) {
-        var inp2 = input(stx[0].token.inner);
-        return $array(parseRestPatterns(inp2));
+        var inp2 = input(stx[0].expose().token.inner, inp.state);
+        var inner = parseRestPatterns(inp2)
+        var len = arrayLen(inner);
+        var withIndex = inner.reduce(function(acc, p, i, arr) {
+          var ann = {}, pann, stop, node;
+          if (p.node.value.isRest) {
+            if (i === 0) {
+              stop = -(arr.length - 1);
+            } else if (i === arr.length - 1) {
+              stop = 0;
+            } else {
+              stop = -(arr.length - i - 1);
+            }
+            extend(p.node.ann, { start: i, stop: stop });
+            node = Ann(IndexNoop(acc[0] + 1), ann);
+          } else {
+            stop = acc[0] + 1;
+            node = Ann(Index(acc[0]), ann);
+          }
+          return [stop, acc[1].concat(Branch(node, [p]))];
+        }, [0, []]);
+        return Branch(Ann(ctr(), {}), [Branch(len, withIndex[1])]);
       }
     }
+    function parseArray(inp) {
+      return parseArrayLike(BRACKETS, Arr, inp);
+    }
     function parseUnapply(inp) {
-      var stx = inp.takeAPeek(PARENS);
+      return parseArrayLike(PARENS, Unapply, inp);
+    }
+    function parseObjectLike(ctr, inp) {
+      var stx = inp.takeAPeek(BRACES);
       if (stx) {
-        var inp2 = input(stx[0].token.inner);
-        return $unapply(parseRestPatterns(inp2));
+        var inp2 = input(stx[0].expose().token.inner, inp.state);
+        var inner = commaSeparated(parseObjectPattern, inp2);
+        return Branch(Ann(ctr(), {}), inner);
+      }
+    }
+    function parseUnapplyObj(inp) {
+      var res = parseObjectLike(UnapplyObj, inp);
+      if (res) {
+        res.branches.forEach(function(b) {
+          b.node.ann.hasOwn = true;
+        });
+        return res;
       }
     }
     function parseObject(inp) {
-      var stx = inp.takeAPeek(BRACES);
-      if (stx) {
-        var inp2 = input(stx[0].token.inner);
-        return $object(commaSeparated(parseObjectPattern, inp2));
-      }
+      return parseObjectLike(Obj, inp);
     }
     function parseObjectPattern(inp) {
       var res = parseBinder(inp);
-      if (res) return $key(res);
-      var tok = inp.takeAPeek({ type: T.Identifier }) ||
-                inp.takeAPeek({ type: T.StringLiteral });
+      if (res) {
+        var ann = res.node.ann;
+        var name = unwrapSyntax(ann.idents[0]);
+        return Branch(Ann(KeyIn(name), ann),
+                      [Branch(Ann(KeyVal(name), ann), [res])]);
+      }
+      var tok = inp.takeAPeek(IDENT) || inp.takeAPeek(STRING);
       if (tok) {
-        var key = tok[0].token.type === T.Identifier
-          ? $identifier(tok)
-          : $literal(tok)
+        var name = unwrapSyntax(tok);
+        var ann = { stx: tok };
         if (inp.takeAPeek(COLON)) {
           var patt = parsePattern(inp);
-          if (patt) return $keyValue(key, patt);
+          if (patt) {
+            return Branch(Ann(KeyIn(name), ann),
+                          [Branch(Ann(KeyVal(name), ann), [patt])]);
+          }
           syntaxError(inp.take(), null, 'not a pattern');
         }
-        return $key(key);
+        if (matchesToken(IDENT, tok)) {
+          inp.state.idents.push(tok[0]);
+          return Branch(Ann(KeyIn(name), ann),
+                        [Branch(Ann(KeyVal(name), ann),
+                                [Leaf(Ann(Wild(), { idents: [tok[0]] }))])]);
+        }
+        return Leaf(Ann(KeyIn(name), ann));
       }
     }
     function parseBinder(inp) {
-      var res = inp.takeAPeek({ type: T.Identifier }, AT);
+      var res = inp.takeAPeek(IDENT, AT);
       if (res) {
         var patt = parsePattern(inp);
-        if (patt) return $binder([res[0]], patt);
+        if (patt) {
+          inp.state.idents.push(res[0]);
+          patt.node.ann.idents = [res[0]];
+          return patt;
+        }
         syntaxError(inp.take(), null, 'not a pattern');
       }
     }
     function parseIdentifier(inp) {
       var res = inp.takeAPeek({ type: T.Identifier });
-      if (res) return $identifier(res);
+      if (res) {
+        inp.state.idents.push(res[0]);
+        return Leaf(Ann(Wild(), { idents: [res[0]] }));
+      }
     }
     function commaSeparated(parser, inp, cb) {
       var all = [], res;
@@ -500,889 +673,546 @@ macro $sparkler__compile {
     function multiRestCallback() {
       var count = 0;
       return function(res, inp) {
-        if (res.type === 'rest' && count++) {
-          syntaxError(res.stx, 'Multiple ...s are not allowed');
-        }
-        return true;
-      }
-    }
-    function $wildcard() {
-      return { 
-        type: 'wildcard',
-        pattern: '*'
-      };
-    }
-    function $undefined() {
-      return { 
-        type: 'undefined', 
-        pattern: 'undefined'
-      };
-    }
-    function $literal(stx) {
-      var val  = stx[0].token.value;
-      var type = stx[0].token.type;
-      return {
-        type: 'literal',
-        pattern: type === T.BooleanLiteral || 
-                 type === T.NullLiteral ? val : JSON.stringify(val),
-        stx: stx
-      };
-    }
-    function $extractor(name, extractor) {
-      var namePatt = name.reduce(function(acc, n) {
-        return acc + n.token.value;
-      }, '');
-      return {
-        type: 'extractor',
-        pattern: namePatt + (extractor ? extractor.pattern : ''),
-        stx: name,
-        children: extractor && [extractor]
-      };
-    }
-    function $arguments(args) {
-      args.forEach(function(x, i) {
-        if (x.pattern.indexOf('...') === 0 && i !== args.length - 1) {
-          syntaxError(x.children[0].stx, 'Rest arguments are only allowed at the end');
-        }
-      });
-      return {
-        type: 'arguments',
-        pattern: joinPatterns(',', args),
-        children: args
-      };
-    }
-    function $argument(patt) {
-      return {
-        type: 'argument',
-        pattern: patt.pattern,
-        children: [patt]
-      };
-    }
-    function $rest(stx, patt) {
-      return {
-        type: 'rest',
-        pattern: '...' + patt.pattern,
-        children: [patt],
-        stx: stx
-      };
-    }
-    function $array(items) {
-      return {
-        type: 'array',
-        pattern: '[' + joinPatterns(',', items) + ']',
-        children: items
-      };
-    }
-    function $unapply(items) {
-      return {
-        type: 'unapply',
-        pattern: '(' + joinPatterns(',', items) + ')',
-        children: items
-      };
-    }
-    function $object(items) {
-      items = _.sortBy(items, function(i) {
-        return i.pattern;
-      });
-      return {
-        type: 'object',
-        pattern: '{' + joinPatterns(',', items) + '}',
-        children: items
-      };
-    }
-    function $keyValue(key, value) {
-      var pattern = key.type === 'literal'
-        ? key.pattern
-        : JSON.stringify(key.name)
-      return {
-        type: 'keyValue',
-        pattern: pattern + ':' + value.pattern,
-        stx: key.stx,
-        children: [value]
-      };
-    }
-    function $key(key) {
-      var pattern = key.type === 'literal'
-        ? key.pattern + ':*'
-        : JSON.stringify(key.name) + ':' + key.pattern;
-      return {
-        type: 'key',
-        pattern: pattern,
-        children: [key]
-      };
-    }
-    function $binder(ident, patt) {
-      return {
-        type: 'binder',
-        pattern: '$@' + patt.pattern,
-        name: ident[0].token.value,
-        stx: ident,
-        children: [patt] 
-      };
-    }
-    function $identifier(ident) {
-      return {
-        type: 'identifier',
-        pattern: '$',
-        name: ident[0].token.value,
-        stx: ident
-      };
-    }
-    function $unit() {
-      return {
-        type: 'unit',
-        pattern: '',
-        children: []
-      };
-    }
-    function environment(vars) {
-      var env = _.extend({
-        set: set,
-        addName: addName,
-        addHead: addHead
-      }, vars);
-      return env;
-      function set(mod) {
-        return environment(_.extend({}, vars, mod));
-      }
-      function addName(stx) {
-        return set({
-          names: vars.names.concat({ stx: stx })
+        return res.unapply(function(v, ann) {
+          if (v.tag === 'Rest' && count++) {
+            syntaxError(ann.stx, 'Multiple ...s are not allowed');
+          }
+          return true;
         });
       }
-      function addHead(name, stx) {
-        if (!vars.head[name]) vars.head[name] = stx;
-        return env;
+    }
+    function arrayLen(bs) {
+      var ctr = bs.reduce(function(ctr, b) {
+        return b.node.value.isRest
+          ? [LenMin, ctr[1]]
+          : [ctr[0], ctr[1] + 1]
+      }, [Len, 0]);
+      return Ann(ctr[0](ctr[1]), {});
+    }
+    function compile(ast) {
+      return compilePattern(astToTree(ast), environment({ refs: {} }), []);
+    }
+    function astToTree(ast) {
+      var level = 2;
+      var cases = ast.branches.map(function(b) { return [b.branches[0]] });
+      var frame = ast.branches.map(function(b) { return [b.branches[1]] });
+      var gr = groupRows(cases, [Frame(frame, 0)], level);
+      return Branch(ast.node, [transformCase(gr[0].node, gr[0].matrix, gr[0].stack, level)]);
+    }
+    function transformCase(c, m, stack, level) {
+      c.ann.level = level;
+      if (!stack.length) {
+        return m.length
+          ? Branch(c, m.reduce(concat))
+          : Leaf(c);
       }
-    }
-    var TO_STR_REF = makeRef(#{ Object.prototype.toString });
-    var natives = {
-      'Boolean'    : makeRef(#{ '[object Boolean]' }),
-      'Number'     : makeRef(#{ '[object Number]' }),
-      'String'     : makeRef(#{ '[object String]' }),
-      'RegExp'     : makeRef(#{ '[object RegExp]' }),
-      'Date'       : makeRef(#{ '[object Date]' }),
-      'Array'      : makeRef(#{ '[object Array]' }),
-      'Object'     : makeRef(#{ '[object Object]' }),
-      'Function'   : makeRef(#{ '[object Function]' }),
-      'Undefined'  : makeRef(#{ '[object Undefined]' }),
-      'Null'       : makeRef(#{ '[object Null]' }),
-      'Math'       : makeRef(#{ '[object Math]' }),
-      'Arguments'  : makeRef(#{ '[object Arguments]' }),
-    }
-    var compilers = {
-      'argument'   : compileArgument,
-      'unit'       : compileUnit,
-      'wildcard'   : compileWildcard,
-      'undefined'  : compileUndefined,
-      'literal'    : compileLiteral,
-      'identifier' : compileIdentifier,
-      'binder'     : compileBinder,
-      'extractor'  : compileExtractor,
-      'object'     : compileObject,
-      'keyValue'   : compileKeyValue,
-      'key'        : compileKey,
-      'unapply'    : compileArray,
-      'array'      : compileArray,
-      'rest'       : compileRest,
-    };
-    function compile(cases) {
-      return shouldCompileBacktrack(cases)
-        ? compileBacktrack(cases)
-        : compileSimple(cases);
-    }
-    function compilePattern(patt, env, cont) {
-      return compilers[patt.type](patt, env, cont);
-    }
-    function compileArgument(patt, env, cont) {
-      var child = patt.children[0];
-      if (child.type === 'rest') {
-        var childEnv = env.set({
-          ref: { name: #{ arguments }},
-          start: env.level,
-          stop: 0,
-          level: env.level + 1
-        });
-        return compilePattern(child, childEnv, cont);
-      }
-      else {
-        var ref = makeArgument(env.level, env);
-        var childEnv = env.set({ ref: ref, level: env.level + 1 });
-        var bod = compilePattern(child, childEnv, cont);
-        return ref.stx && patt.pattern !== '*' ? ref.stx.concat(bod) : bod;
-      }
-    }
-    function compileUnit(patt, env, cont) {
-      letstx $bod ... = cont(env);
-      return #{
-        if (arguments.length === 0) { $bod ...  }
-      }
-    }
-    function compileWildcard(patt, env, cont) {
-      return cont(env);
-    }
-    function compileUndefined(patt, env, cont) {
-      letstx $bod ... = cont(env);
-      letstx $ref = env.ref.name;
-      return #{
-        if ($ref === void 0) { $bod ... }
-      }
-    }
-    function compileLiteral(patt, env, cont) {
-      letstx $bod ... = cont(env);
-      letstx $ref = env.ref.name;
-      letstx $lit = patt.stx;
-      return #{
-        if ($ref === $lit) { $bod ... }
-      }
-    }
-    function compileIdentifier(patt, env, cont) {
-      env = env.addName(env.ref.name);
-      return cont(env);
-    }
-    function compileBinder(patt, env, cont) {
-      env = env.addName(env.ref.name);
-      return compilePattern(patt.children[0], env, cont);
-    }
-    function compileExtractor(patt, env, cont) {
-      var child = patt.children && patt.children[0];
-      var clsName = patt.stx[patt.stx.length - 1].token.value;
-      if (child && child.type === 'unapply') {
-        var arrRef = makeRef();
-        var childEnv = env.set({ noCheck: true, ref: arrRef });
-        letstx $bod ... = compilePattern(child, childEnv, cont);
-        letstx $cls ... = patt.stx;
-        letstx $arr = arrRef.name;
-        letstx $ref = env.ref.name;
-        return #{
-          var $arr = $cls ... .unapply($ref);
-          $bod ...
-        }
-      }
-      else if (child && child.type === 'object') {
-        var objRef = makeRef();
-        var childEnv = env.set({ noCheck: true, hasOwn: true, ref: objRef });
-        letstx $bod ... = compilePattern(child, childEnv, cont);
-        letstx $cls ... = patt.stx;
-        letstx $obj = objRef.name;
-        letstx $ref = env.ref.name;
-        return #{
-          var $obj = $cls ... .unapplyObject($ref);
-          $bod ...
-        }
-      }
-      else if (patt.stx.length === 1 && natives[clsName]) {
-        env = env
-          .addHead('toStr', TO_STR_REF)
-          .addHead(clsName, natives[clsName]);
-        letstx $bod ... = cont(env);
-        letstx $toStr = TO_STR_REF.name;
-        letstx $natStr = natives[clsName].name;
-        letstx $ref = env.ref.name;
-        return #{
-          if ($toStr.call($ref) === $natStr) { $bod ... }
-        }
-      }
-      else if (patt.stx.length === 1 && clsName === 'NaN') {
-        env = env
-          .addHead('toStr', TO_STR_REF)
-          .addHead(clsName, natives.Number);
-        letstx $bod ... = cont(env);
-        letstx $toStr = TO_STR_REF.name;
-        letstx $natStr = natives.Number.name;
-        letstx $ref = env.ref.name;
-        return #{
-          if ($toStr.call($ref) === $natStr && $ref !== +$ref) { $bod ... }
-        }
-      }
-      else {
-        letstx $bod ... = cont(env);
-        letstx $cls ... = patt.stx;
-        letstx $ref = env.ref.name;
-        return #{
-          if ($cls ... .hasInstance
-              ? $cls ... .hasInstance($ref)
-              : $ref instanceof $cls ...) { $bod ... }
-        }
-      }
-    }
-    function compileObject(patt, env, cont) {
-      var noCheck = env.noCheck;
-      var primRef = env.ref;
-      env = env.set({ ref: noCheck ? primRef : makeRef(), noCheck: false });
-      cont = patt.children.reduceRight(function(c, p) {
-        return function() {
-          return compilePattern(p, env, function(e) {
-            env = env.set({ names: e.names });
-            return c(env);
-          });
-        };
-      }, cont);
-      letstx $bod ... = cont(env);
-      letstx $ref = primRef.name;
-      if (noCheck) {
-        return #{
-          if ($ref != null) { $bod ... }
-        }
+      var nl = level + 1;
+      var gr;
+      if (!m.length) {
+        nl = stack[0].level;
+        gr = groupRows(stack[0].matrix, stack.slice(1), stack[0].level);
+      } else if (isMatrixType(c.value)) {
+        gr = groupRows(scoreMatrix(normalizeMatrix(c, m)), stack, level);
       } else {
-        letstx $box = env.ref.name;
+        gr = groupRows(m, stack, level);
+      }
+      var head = transformCase(gr[0].node, gr[0].matrix, gr[0].stack, nl);
+      var rest = gr[1].length && transformCase(c, gr[1], gr[2], level).branches || [];
+      return Branch(c, [head].concat(rest).reduceRight(function(acc, c) {
+        if (acc.length && acc[0].node.equals(c.node)) {
+          acc[0] = Branch(mergeNodes(c.node, acc[0].node), c.branches.concat(acc[0].branches));
+        } else {
+          acc.unshift(c);
+        }
+        return acc;
+      }, []));
+    }
+    function groupRows(m, stack, level) {
+      function rowHeadStack(r, s) {
+        return r.length === 1 ? s : [Frame([r.slice(1)], level)].concat(s);
+      }
+      var head = m[0];
+      var rest = m.slice(1);
+      var init = Group(head[0].node,
+                       head[0].branches ? [head[0].branches] : [],
+                       rowHeadStack(head, stackRow(stack, 0)));
+      return rest.reduce(function(acc, r, i) {
+        var g = acc[0];
+        var c = r[0];
+        if (!acc[1].length && canGroupCases(head[0], c)) {
+          var n = mergeNodes(g.node, c.node);
+          var m = c.branches ? g.matrix.concat([c.branches]) : g.matrix;
+          var s = stackZip(g.stack, rowHeadStack(r, stackRow(stack, i + 1)));
+          acc[0] = Group(n, m, s);
+        } else {
+          acc[1].push(r);
+          acc[2] = stackZip(acc[2], stackRow(stack, i + 1));
+        }
+        return acc;
+      }, [init, [], []]);
+    }
+    function mergeNodes(c1, c2) {
+      return Ann(c1.value,
+                 extend({}, c1.ann, {
+                   idents: (c1.ann.idents || []).concat(c2.ann.idents || [])
+                 }));
+    }
+    function canGroupCases(c1, c2) {
+      if (canGroup.hasOwnProperty(c1.node.value.tag)) {
+        return canGroup[c1.node.value.tag](c1, c2);
+      } else {
+        return c1.node.equals(c2.node);
+      }
+    }
+    var canGroup = {
+      Arg: canGroupChild,
+      Index: canGroupChild,
+    };
+    function canGroupChild(c1, c2) {
+      return c1.node.equals(c2.node)
+          && canGroupCases(c1.branches[0], c2.branches[0]);
+    }
+    function normalizeMatrix(c, m) {
+      assert(isMatrixType(c.value), 'Unsupported matrix type: ' + c.value.tag);
+      return normalize[c.value.tag](c, m);
+    }
+    function isMatrixType(n) {
+      return normalize.hasOwnProperty(n.tag);
+    }
+    var normalize = {
+      Obj        : normalizeObj,
+      UnapplyObj : normalizeObj,
+      Len        : normalizeNoop,
+      LenMin     : normalizeNoop,
+      Args: function(n, m) {
+        var max = Math.max.apply(null, m.map(function(r) { return r.length }));
+        return normalizeVarLen(max, Arg, m)
+      }
+    };
+    function normalizeNoop(n, m) {
+      return m;
+    }
+    function normalizeObj(n, m) {
+      var layout = m.reduceRight(function(acc, r) {
+        return r.reduce(function(a, c) {
+          a[0][0].keys[c.node.value.key] = true;
+          a[1][c.node.value.key] = true;
+          return a;
+        }, [[{ keys: {}, row: r }].concat(acc[0]), acc[1]]);
+      }, [[], {}]);
+      return layout[0].map(function(r) {
+        Object.keys(layout[1]).forEach(function(k) {
+          if (!r.keys[k]) r.row.push(Leaf(Ann(KeyNoop(k), {})));
+        });
+        return r.row.sort(sortObjKeys);
+      });
+    }
+    function normalizeVarLen(len, ctr, m) {
+      return m.map(function(r) {
+        if (r.length >= len) {
+          return r;
+        } else {
+          return r.concat(repeat(len - r.length, function(i) {
+            return Leaf(Ann(ctr(r.length - i + 1), {}));
+          }));
+        }
+      });
+    }
+    function sortObjKeys(a, b) {
+      a = a.node.value.key;
+      b = b.node.value.key;
+      return a < b ? -1 : b < a ? 1 : 0;
+    }
+    function scoreMatrix(m) {
+      var scores = m.map(function(c) {
+        return c.map(scorePattern);
+      });
+      var ranks = [];
+      for (var i = 0; i < scores[0].length; i++) {
+        var s = 0;
+        for (var j = 0; j < scores.length; j++) {
+          if (scores[j][i] > 0) {
+            s += scores[j][i];
+          } else {
+            break;
+          }
+        }
+        for (var k = 0; k <= ranks.length; k++) {
+          if (!ranks[k] || s > ranks[k][0]) {
+            ranks.splice(k, 0, [s, i]);
+            break;
+          }
+        }
+      }
+      return m.map(function(c) {
+        return ranks.map(function(r) {
+          return c[r[1]];
+        });
+      });
+    }
+    function scorePattern(p) {
+      var t = p.node.value.tag;
+      return t in score ? score[t].apply(score, p.args) : 1;
+    }
+    function scoreChild(n, bs) {
+      return bs ? scorePattern(bs[0]) : 0;
+    }
+    var score = {
+      Arg       : scoreChild,
+      Index     : scoreChild,
+      Wild      : constant(0),
+      KeyNoop   : constant(0),
+      IndexNoop : scoreChild,
+    };
+    function stackRow(stack, i) {
+      return stack.map(function(f) {
+        return Frame([f.matrix[i]], f.level);
+      });
+    }
+    function stackZip(s1, s2) {
+      if (!s1.length) return s2;
+      if (!s2.length) return s1;
+      return s1.map(function(f, i) {
+        return f.concat(s2[i]);
+      });
+    }
+    function compilePattern(t, env, stack) {
+      var n = t.node;
+      var bs = t.branches;
+      if (t.isBranch) {
+        var c = branchCompilers[n.value.tag] || assert(false, 'Unexpected node: ' + n.value.tag);
+        var r = stack[stack.length - 1];
+        var cont = function(e, r2) {
+          var s = stack.concat([r2 || r]);
+          return bs.reduce(function(stx, b) {
+            var l = b.node.ann.level;
+            return stx.concat(compilePattern(b, e, s.slice(0, l)));
+          }, []);
+        };
+        if (n.ann.idents && n.ann.idents.length) {
+          env = n.ann.idents.reduce(function(e, id) {
+            return e.stash(unwrapSyntax(id), r);
+          }, env);
+        }
+        return c.apply(null, n.value.unapply().concat(n.ann, [r], env, cont, [bs]));
+      } else {
+        var c = leafCompilers[n.value.tag] || assert(false, 'Unexpected leaf: ' + n.value.tag);  
+        return c.apply(null, n.value.unapply().concat(n.ann, env));
+      }
+    }
+    var branchCompilers = {
+      Fun: function(len, ann, _, env, cont) {
+        var env2 = env.set({
+          argIdents: repeat(len, function(i) {
+            return [makeIdent('a' + i, here)];
+          })
+        });
+        var body = cont(env2);
+        var err = #{ throw new TypeError('No match') };
+        letstx $name = unwrapSyntax(fnName) === 'anonymous' ? [] : fnName,
+               $args = join(makePunc(',', here), env2.argIdents),
+               $code = optimizeSyntax(body.concat(err));
+        return #{ 
+          function $name ($args) { $code }
+        }
+      },
+      Args: compileNoop,
+      Arg: function(i, ann, _, env, cont) {
+        return cont(env, env.argIdents[i]);
+      },
+      Unit: function(ann, _, env, cont) {
+        letstx $bod = cont(env);
+        return #{
+          if (arguments.length === 0) { $bod }
+        }
+      },
+      Wild: compileNoop,
+      Undef: function(ann, ref, env, cont) {
+        letstx $ref = ref,
+               $bod = cont(env);
+        return #{
+          if ($ref === void 0) { $bod }
+        }
+      },
+      Lit: function(v, ann, ref, env, cont) {
+        letstx $ref = ref,
+               $lit = ann.stx,
+               $bod = cont(env);
+        return #{ 
+          if ($ref === $lit) { $bod }
+        }
+      },
+      Extractor: compileNoop,
+      Inst: function(ann, ref, env, cont) {
+        if (natives.hasOwnProperty(ann.name)) {
+          letstx $test = natives[ann.name](ref, env),
+                 $bod = cont(env);
+          return #{
+            if ($test) { $bod }
+          }
+        } else {
+          letstx $ref = ref,
+                 $cls = ann.extractor,
+                 $bod = cont(env);
+          return #{
+            if ($cls.hasInstance 
+                ? $cls.hasInstance($ref)
+                : $ref instanceof $cls) { $bod }
+          }
+        }
+      },
+      Unapply: function(ann, ref, env, cont) {
+        var ref2 = makeRef();
+        letstx $ref = ref,
+               $new = ref2,
+               $ext = ann.extractor,
+               $bod = cont(env, ref2);
+        return #{
+          var $new = $ext.unapply($ref);
+          if ($new != null) { $bod }
+        }
+      },
+      UnapplyObj: function(ann, ref, env, cont) {
+        var ref2 = makeRef();
+        letstx $ref = ref,
+               $new = ref2,
+               $ext = ann.extractor,
+               $bod = cont(env, ref2);
+        return #{
+          var $new = $ext.unapplyObject($ref);
+          if ($new != null) { $bod }
+        }
+      },
+      Arr: function(ann, ref, env, cont) {
+        letstx $test = natives.Array(ref, env),
+               $bod = cont(env, ref);
+        return #{
+          if ($test) { $bod }
+        }
+      },
+      Len: function(len, ann, ref, env, cont) {
+        letstx $len = [makeValue(len, here)],
+               $ref = ref,
+               $bod = cont(env);
+        return #{
+          if ($ref.length === $len) { $bod }
+        }
+      },
+      LenMin: function(len, ann, ref, env, cont) {
+        letstx $len = [makeValue(len, here)],
+               $ref = ref,
+               $bod = cont(env);
+        return #{
+          if ($ref.length >= $len) { $bod }
+        }
+      },
+      Index: function(i, ann, ref, env, cont, bs) {
+        var index = i >= 0
+          ? [makeValue(i, here)]
+          : ref.concat(makePunc('.', here),
+                       makeIdent('length', here),
+                       makePunc('-', here),
+                       makeValue(Math.abs(i), here));
+        if (bs.length === 1 && bs[0].node.value.isWild) {
+          if (!bs[0].node.ann.idents || !bs[0].node.ann.idents.length) {
+            return cont(env);
+          } else {
+            return cont(env, ref.concat(makeDelim('[]', index, here)));
+          }
+        }
+        var ref2 = makeRef();
+        letstx $ref = ref,
+               $ind = index,
+               $new = ref2,
+               $bod = cont(env, ref2);
+        return #{
+          var $new = $ref[$ind];
+          $bod
+        }
+      },
+      IndexNoop: compileNoop,
+      Obj: function(ann, ref, env, cont) {
+        var ref2 = makeRef();
+        letstx $ref = ref,
+               $new = ref2,
+               $bod = cont(env, ref2);
         return #{
           if ($ref != null) {
-            var $box = Object($ref);
-            $bod ...
+            var $new = Object($ref);
+            $bod
           }
         }
-      }
-    }
-    function makeObjectCheck(ref, key, bod, env) {
-      letstx $bod ... = bod;
-      letstx $key = key;
-      letstx $ref = ref;
-      if (env.hasOwn) {
-        return #{
-          if ($ref.hasOwnProperty($key)) { $bod ... }
-        }
-      } else {
-        return #{
-          if ($key in $ref) { $bod ... }
-        }
-      }
-    }
-    function compileKeyValue(patt, env, cont) {
-      var key = [makeValue(patt.stx[0].token.value, here)];
-      var ref = makeRef([env.ref.name, makeDelim('[]', key, here)]);
-      var childEnv = env.set({ ref: ref, hasOwn: false });
-      var bod = ref.stx.concat(compilePattern(patt.children[0], childEnv, cont));
-      return makeObjectCheck(env.ref.name, key, bod, env);
-    }
-    function compileKey(patt, env, cont) {
-      var child = patt.children[0];
-      if (child.type === 'literal') {
-        return makeObjectCheck(env.ref.name, child.stx, cont(env), env);
-      }
-      var key = [makeValue(child.name, here)];
-      var ref = makeRef([env.ref.name, makeDelim('[]', key, here)]);
-      var childEnv = env.set({ ref: ref, hasOwn: false });
-      var bod = ref.stx.concat(compilePattern(child, childEnv, cont));
-      return makeObjectCheck(env.ref.name, [makeValue(child.name, here)], bod, env);
-    }
-    function compileArray(patt, env, cont) {
-      var noCheck = env.noCheck;
-      if (!env.noCheck) {
-        env = env
-          .addHead('toStr', TO_STR_REF)
-          .addHead('Array', natives.Array)
-      }
-      env = env.set({ start: 0, noCheck: false });
-      var len = patt.children.length;
-      var restIndex = indexOfRest(patt);
-      var hasRest = restIndex >= 0;
-      if (hasRest) len -= 1;
-      if (len >= 0) {
-        cont = patt.children.reduceRight(function(c, p) {
-          return function(e) {
-            var ref, env2;
-            if (p.type === 'rest') {
-              var stop = -1;
-              if (restIndex === 0) stop = len;
-              if (restIndex < len) stop = len - restIndex;
-              env2 = env.set({ stop: stop });
-            }
-            else {
-              var start = env.start < 0
-                ? env.ref.name.concat(makePunc('.', here), makeIdent('length', here),
-                    makePunc('-', here), makeValue(Math.abs(env.start), here))
-                : [makeValue(env.start, here)];
-              ref = makeRef([env.ref.name, makeDelim('[]', start, here)]);
-              env2 = env.set({ ref: ref, start: e.start + 1 });
-            }
-            var bod = compilePattern(p, env2, function(e) {
-              env = env.set({ start: e.start, names: e.names });
-              return c(e);
-            });
-            return ref ? ref.stx.concat(bod) : bod;
+      },
+      KeyIn: function(key, ann, ref, env, cont) {
+        letstx $ref = ref,
+               $key = [makeValue(key, here)],
+               $bod = cont(env);
+        if (ann.hasOwn) {
+          return #{
+            if ($ref.hasOwnProperty($key)) { $bod }
           }
-        }, cont);
-        if (hasRest && len > 0 || !hasRest) {
-          cont = function(c) {
-            return function() {
-              var op = hasRest ? #{ >= } : #{ === };
-              letstx $bod ... = c(env);
-              letstx $ref = env.ref.name;
-              letstx $len = [makeValue(len, here)];
-              letstx $op  = op;
-              return #{
-                if ($ref.length $op $len) { $bod ... }
-              }
-            }
-          }(cont);
-        }
-      }
-      letstx $ref = env.ref.name;
-      letstx $bod ... = cont(env);
-      if (noCheck) {
-        return #{
-          if ($ref != null) { $bod ... }
-        }
-      } else {
-        letstx $toStr = TO_STR_REF.name;
-        letstx $arrStr = natives.Array.name;
-        return #{
-          if ($toStr.call($ref) === $arrStr) { $bod ... }
-        }
-      }
-    }
-    function compileRest(patt, env, cont) {
-      var child = patt.children[0];
-      var start = env.start;
-      var stop  = env.stop;
-      env = env.set({ start: -stop });
-      if (child.type === 'wildcard') {
-        return cont(env);
-      }
-      var okRef  = makeRef(makeValue(true, here)); 
-      var iRef   = makeRef(); 
-      var lenRef = makeRef(); 
-      var inRef  = makeRef(); 
-      var isRootRest = !env.restRefs;
-      if (isRootRest) env.restRefs = [];
-      var childEnv = env.set({ 
-        ref: inRef, 
-        names: [], 
-        restRefs: []
-      });
-      var loopBody = compilePattern(child, childEnv, function(env2) {
-        function reducer(acc, n) {
-          var ref = makeRef(makeDelim('[]', [], here));
-          env.restRefs.push(ref);
-          return acc.concat(ref.name,
-            makeDelim('[]', ref.name.concat(makePunc('.', here), makeIdent('length', here)), here), 
-            makePunc('=', here), n.name || n.stx, makePunc(';', here));
-        }
-        var stx = env2.names.reduceRight(reducer, []);
-        if (env2.restRefs) stx = env2.restRefs.reduceRight(reducer, stx);
-        return stx.concat(#{ continue; });
-      });
-      var restRefs = env.restRefs.map(function(r) {
-        if (isRootRest) env = env.addName(r.name);
-        return r.stx;
-      });
-      var stopRef = env.ref.name.concat(makePunc('.', here), makeIdent('length', here));
-      if (stop > 0) stopRef.push(makePunc('-', here), makeValue(stop, here));
-      letstx $bod ... = cont(env);
-      letstx $loopBod ... = loopBody;
-      letstx $start = [makeValue(start, here)];
-      letstx $stop  = [makeDelim('()', stopRef, here)];
-      letstx $ok    = okRef.name;
-      letstx $i     = iRef.name;
-      letstx $len   = lenRef.name;
-      letstx $in    = inRef.name;
-      letstx $ref   = env.ref.name;
-      var loop = #{
-        for (var $i = $start, $len = $stop, $in; $i < $len; $i++) {
-          $in = $ref[$i];
-          $loopBod ...
-          $ok = false;
-          break;
-        }
-      };
-      if (child.type === 'identifier') {
-        letstx $rrefs ... = joinRefs(restRefs);
-        letstx $loop ... = loop;
-        return #{
-          $rrefs ...
-          $loop ...
-          $bod ...
-        }
-      } else {
-        letstx $rrefs ... = joinRefs([okRef].concat(restRefs));
-        letstx $loop ... = loop;
-        return #{
-          $rrefs ...
-          $loop ...
-          if ($ok) { $bod ... }
-        }
-      }
-    }
-    function compileSimple(cases) {
-      cases.forEach(function(c) {
-        c.names = findIdents(c.args.children).map(function(i) {
-          return i.name;
-        });
-      });
-      var argCount = cases.reduce(function(acc, c) {
-        if (!c.args.pattern || c.args.pattern === '*') return acc;
-        var count = c.args.children.length;
-        var hasRest = _.any(c.args.children, function(a) {
-          return a.children[0].type === 'rest';
-        });
-        if (hasRest) count -= 1;
-        return count > acc ? count : acc;
-      }, 0);
-      var argNames = [];
-      while (argCount--) {
-        argNames.unshift(makeIdent('a' + argCount, here));
-      }
-      var env = environment({
-        cases: cases,
-        head: {},
-        names: [],
-        argNames: argNames,
-        level: 0
-      });
-      var branches = optimizeBranches(cases);
-      var body = compileBranches(branches, env);
-      var err  = #{ throw new TypeError('No match') };
-      var head = joinRefs(_.values(env.head));
-      letstx $name ... = fnName[0].token.value === 'anonymous' ? [] : fnName;
-      letstx $args ... = intercalate(makePunc(',', here), argNames);
-      letstx $code ... = optimizeSyntax(head.concat(body).concat(err));
-      return #{
-        function $name ... ($args ...) {
-          $code ...
-        }
-      }
-    }
-    function optimizeBranches(cases) {
-      var branches = cases.map(function(c) {
-        var patts = c.args.children;
-        var last = patts[patts.length - 1];
-        if (c.guard.length) {
-          last.guards = [{ guard: c.guard, body: c.body, names: c.names }];
         } else {
-          last.body = c.body;
-          last.names = c.names;
-        }
-        return patts.reduceRight(function(acc, patt) {
-          patt.branches = [acc];
-          return patt;
-        });
-      });
-      function graft(bs) {
-        for (var i = 1; i < bs.length; i++) {
-          for (var j = i - 1; j >= 0; j--) {
-            if (bs[i].pattern === bs[j].pattern &&
-                !(!bs[j].branches &&
-                  (bs[j].pattern === '$' ||
-                   bs[j].pattern === '*'))) {
-              if (bs[i].branches) {
-                if (!bs[j].branches) bs[j].branches = [];
-                bs[j].branches = bs[j].branches.concat(bs[i].branches);
-              } else if (bs[i].guards) {
-                if (!bs[j].guards) bs[j].guards = [];
-                bs[j].guards = bs[j].guards.concat(bs[i].guards);
-              } else {
-                bs[j].body = bs[i].body;
-                bs[j].names = bs[i].names;
-              }
-              bs.splice(i, 1);
-              i--;
-            } else break;
+          return #{
+            if ($key in $ref) { $bod }
           }
         }
-        bs.forEach(function(b) {
-          if (b.branches) graft(b.branches);
-        });
-        return bs;
-      }
-      return graft(branches);
-    }
-    function compileBranches(branches, env) {
-      return branches.reduce(function(acc, b) {
-        return acc.concat(compileBranch(b, env));
-      }, []);
-    }
-    function compileBranch(patt, env) {
-      return compilePattern(patt, env, function (env2) {
-        var branchBody, guardBody, pattBody, names;
-        if (patt.branches) {
-          branchBody = compileBranches(patt.branches, env2);
-        }
-        if (patt.guards) {
-          guardBody = patt.guards.reduceRight(function(rest, g) {
-            var names = _.zip(g.names, env2.names);
-            var body = joinRefs(names.reduceRight(nameReducer, [])).concat(g.body);
-            var guard = [makeKeyword('if', here), makeDelim('()', replaceIdents(g.guard, names), here), 
-              makeDelim('{}', body, here)];
-            return guard.concat(rest);
-          }, []);
-        }
-        if (patt.body) {
-          names = _.zip(patt.names, env2.names);
-          pattBody = joinRefs(names.reduceRight(nameReducer, []))
-            .concat(wrapBlock(patt.body));
-        } 
-        return (branchBody  || [])
-          .concat(guardBody || [])
-          .concat(pattBody  || []);
-      });
-      function nameReducer(bod, n) {
-        var id = makeIdent(n[0], ctx);
-        return [makeAssign(id, n[1].stx)].concat(bod);
-      }
-    }
-    function compileBacktrack(cases) {
-      var argLen  = 0;
-      var nameLen = 0;
-      var stateId = 1;
-      var stateIdMap = {};
-      var states = {};
-      function getStateId(arg, argN) {
-        var key = argN + ':' + arg.pattern;
-        if (!stateIdMap.hasOwnProperty(key)) {
-          stateIdMap[key] = stateId;
-          states[stateId] = [];
-          stateId++;
-        }
-        return stateIdMap[key];
-      }
-      cases.forEach(function(c, i) {
-        var names = [];
-        var len = c.args.children.length;
-        var last = c.args.children[c.args.children.length - 1];
-        if (last.children[0] === 'rest') len--;
-        c.args.children.forEach(function(arg, j) {
-          var id = getStateId(arg, j);
-          var nextArg = c.args.children[j + 1];
-          var nextCase = cases[i + 1];
-          var argNames = findIdents(arg.children);
-          arg.offset = names.length;
-          arg.level = j;
-          arg.case = i + 1; 
-          arg.succ = nextArg  ? getStateId(nextArg, j + 1) : 0;
-          arg.fail = nextCase ? getStateId(nextCase.args.children[0], 0) : 0;
-          if (!nextArg) {
-            arg.body = c.body;
-            arg.guard = c.guard;
-          }
-          states[id].push(arg);
-          names = names.concat(argNames);
-        });
-        if (len > argLen) argLen = len;
-        if (names.length > nameLen) nameLen = names.length;
-        last.names = names.map(function(n) {
-          return n.name;
-        });
-      });
-      var argNames = [];
-      var nameRefs = [];
-      while (argLen--) argNames.unshift(makeIdent('a' + argLen, here));
-      while (nameLen--) nameRefs.push(makeRef());
-      var stx = [];
-      var env = environment({
-        head: {},
-        argNames: argNames,
-        nameRefs: nameRefs,
-        backRefs: [],
-      });
-      var stxStates = _.map(states, function(patts, id) {
-        return compileState(parseInt(id), patts, env);
-      });
-      letstx $name ... = fnName[0].token.value === 'anonymous' ? [] : fnName;
-      letstx $args ... = intercalate(makePunc(',', here), argNames);
-      letstx $head ... = joinRefs(_.values(env.head));
-      letstx $refs ... = joinRefs(nameRefs.concat(env.backRefs));
-      letstx $code ... = optimizeSyntax(joinAlternates(stxStates));
-      return #{
-        function $name ... ($args ...) {
-          var s = 1, c = 1;
-          $head ...
-          $refs ...
-          while (true) {
-            $code ...
-          }
-          throw new TypeError('No match');
-        }
-      }
-    }
-    function compileState(id, patts, env) {
-      var pattBody, succBody, failBody;
-      function compileSucc(patt, body) {
-        if (patt.body) {
-          var names = _.zip(patt.names, env.nameRefs.slice(0, patt.names.length));
-          var code  = names.reduce(function(acc, pair) {
-            return acc.concat(makeKeyword('var', here), makeIdent(pair[0], ctx),
-              makePunc('=', here), pair[1].name, makePunc(';', here));
-          }, []).concat(patt.body);
-          if (patt.guard.length) {
-            letstx $guard ... = replaceIdents(patt.guard, names);
-            letstx $refBod ... = body;
-            letstx $caseBod ... = code;
-            body = #{
-              $refBod ...
-              if ($guard ...) {
-                $caseBod ...
-              }
-            }
+      },
+      KeyVal: function(key, ann, ref, env, cont, bs) {
+        if (bs.length === 1 && bs[0].node.value.isWild) {
+          if (!bs[0].node.ann.idents || !bs[0].node.ann.idents.length) {
+            return cont(env);
           } else {
-            body = body.concat(code);
+            return cont(env, ref.concat(makeDelim('[]', [makeValue(key, here)], here)));
           }
         }
-        else {
-          letstx $nextState = [makeValue(patt.succ, here)];
-          body = body.concat(#{
-            s = $nextState;
-            continue;
-          });
-        }
-        letstx $caseBod ... = body;
-        letstx $currCase = [makeValue(patt.case, here)];
+        var ref2 = makeRef();
+        letstx $ref = ref,
+               $new = ref2,
+               $key = [makeValue(key, here)],
+               $bod = cont(env, ref2);
         return #{
-          if (c === $currCase) {
-            $caseBod ...
-          }
+          var $new = $ref[$key];
+          $bod
         }
-      }
-      var childEnv = env.set({
-        level: patts[0].level,
-        names: []
-      });
-      if (shouldStateBacktrack(patts)) {
-        var backRef = makeRef();
-        var nameLen = 0; 
-        env.backRefs.push(backRef);
-        pattBody = compilePattern(patts[0], childEnv, function(env2) {
-          nameLen = env2.names.length;
-          if (nameLen) {
-            return env2.names.reduce(function(acc, name, i) {
-              return acc.concat(backRef.name, makeDelim('[]', [makeValue(i, here)], here),
-                makePunc('=', here), name.stx, makePunc(';', here));
-            }, []);
-          } else {
-            return backRef.name.concat(makePunc('.', here), makeIdent('length', here),
-              makePunc('=', here), makeValue(1, here), makePunc(';', here));
+      },
+      KeyNoop: compileNoop,
+      Rest: function(pattern, names, ann, ref, env, cont) {
+        var refs = ann.stashed.reduce(function(acc, id) {
+          var k = unwrapSyntax(id);
+          if (!acc[2].hasOwnProperty(k)) {
+            acc[0].push(id);
+            acc[1].push(makeRef());
+            acc[2][k] = true;
           }
-        });
-        letstx $bod ... = pattBody;
-        letstx $back = backRef.name;
-        pattBody = #{
-          if (!$back) {
-            $back = [];
-            $bod ...
+          return acc;
+        }, [[], [], {}]);
+        var init = refs[1].length
+          ? [makeKeyword('var', here)].concat(
+              join(makePunc(',', here), refs[1].map(function(r) {
+                return r.concat(makePunc('=', here), makeDelim('[]', [], here));
+              })),
+              makePunc(';', here))
+          : [];
+        var oref = makeRef(); 
+        var iref = makeRef(); 
+        var sref = makeRef(); 
+        var lref = makeRef(); 
+        var aref = ann.argRest ? [makeIdent('arguments', here)] : ref;
+        var start = [makeValue(ann.start, here)];
+        var stop = withSyntax($a = aref) {
+          if (!ann.stop) {
+            return #{ $a.length };
+          } else {
+            letstx $stop = [makeValue(Math.abs(ann.stop), here)];
+            return #{ $a.length - $stop };
           }
         };
-        succBody = joinAlternates(patts.map(function(patt) {
-          var refs = env.nameRefs.slice(patt.offset, patt.offset + nameLen);
-          var body = refs.reduce(function(acc, ref, i) {
-            return acc.concat(ref.name, makePunc('=', here), backRef.name,
-              makeDelim('[]', [makeValue(i, here)], here), makePunc(';', here));
-          }, []);
-          return compileSucc(patt, body);
+        var end = Leaf(Ann(RestEnd(), { stashed: refs[0], refs: refs[1] }));
+        var g = groupRows([[pattern]], [Frame([[end]], 0)], 1)[0];
+        var t = transformCase(g.node, g.matrix, g.stack, 1);
+        var s = compilePattern(t, environment({ refs: {} }), [void 0, lref]);
+        var env2 = ann.stashed.reduce(function(e, id, i) {
+          return e.stash(unwrapSyntax(id), refs[1][i]);
+        }, env);
+        letstx $init = init,
+               $oref = oref,
+               $aref = aref,
+               $iref = iref,
+               $lref = lref,
+               $sref = sref,
+               $start = start,
+               $stop = stop,
+               $inner = s,
+               $bod = cont(env2);
+        return #{
+          $init
+          var $oref = true;
+          for (var $iref = $start, $sref = $stop, $lref; $iref < $sref; $iref++) {
+            $lref = $aref[$iref];
+            $inner
+            $oref = false;
+            break;
+          }
+          if ($oref) { $bod }
+        }
+      },
+      Guard: function(ann, _, env, cont) {
+        var names = ann.stashed.reduce(function(acc, id) {
+          var k = unwrapSyntax(id);
+          acc[k] = env.retrieve(k);
+          return acc;
+        }, {});
+        letstx $test = replaceIdents(ann.stx, names),
+               $bod = cont(env);
+        return #{
+          if ($test) { $bod }
+        }
+      }
+    };
+    var leafCompilers = {
+      Body: function(ann, env) {
+        var refs = join([], ann.stashed.map(function(id) {
+          return makeAssign(id, env.retrieve(unwrapSyntax(id)));
         }));
-        letstx $bod ... = succBody;
-        succBody = #{
-          if ($back.length) {
-            $bod ...
-          }
-        };
-      }
-      else {
-        succBody = [];
-        pattBody = compilePattern(patts[0], childEnv, function(env2) {
-          return joinAlternates(patts.map(function(patt) {
-            var refs = env.nameRefs.slice(patt.offset, patt.offset + env2.names.length);
-            var body = _.zip(refs, env2.names).reduce(function(acc, pair) {
-              return acc.concat(pair[0].name, makePunc('=', here), pair[1].stx, makePunc(';', here));
-            }, []);
-            return compileSucc(patt, body);
-          }));
-        });
-      }
-      failBody = joinAlternates(patts.map(function(patt) {
-        letstx $currCase = [makeValue(patt.case, here)];
-        if (!patt.fail) {
+        return makeDelim('{}', refs.concat(ann.stx), here);
+      },
+      RestEnd: function(ann, env) {
+        var refs = join([], ann.stashed.map(function(id, i) {
+          letstx $arr = ann.refs[i],
+                 $ref = env.retrieve(unwrapSyntax(id));
           return #{
-            if (c === $currCase) {
-              break;
-            }
+            $arr[$arr.length] = $ref;
           }
-        } else {
-          letstx $nextCase = [makeValue(patt.case + 1, here)];
-          letstx $nextState = [makeValue(patt.fail, here)];
-          return #{
-            if (c === $currCase) {
-              s = $nextState, c = $nextCase;
-            }
-          }
-        }
-      }));
-      letstx $bod ... = pattBody.concat(succBody).concat(failBody);
-      letstx $id = [makeValue(id, here)];
-      return #{
-        if (s === $id) {
-          $bod ...
+        }));
+        letstx $refs = refs;
+        return #{
+          $refs
+          continue;
         }
       }
+    };
+    function compileNoop() {
+      var cont = arguments[arguments.length - 2];
+      var env  = arguments[arguments.length - 3];
+      return cont(env);
     }
-    function optimizeSyntax(stx) {
-      var inp = input(stx);
-      var res = [];
-      var toks, opt;
-      while (inp.length) {
-        if (inp.peek()[0].userCode) {
-          res.push(inp.take()[0]);
-        } else if (toks = inp.takeAPeek({ type: T.Keyword }, PARENS, BRACES)) {
-          if (matchesToken(IF, toks[0])) {
-            opt = optimizeIfs(toks);
-          } else if (matchesToken(FOR, toks[0])) {
-            opt = optimizeFors(toks);
-          } else {
-            toks[2].token.inner = optimizeSyntax(toks[2].token.inner);
-            opt = toks;
-          }
-          res = res.concat(opt);
-        } else if (toks = inp.takeAPeek(ELSE, BRACES)) {
-          res = res.concat(optimizeElses(toks));
-        } else if (toks = inp.takeAPeek(BRACES)) {
-          res = res.concat(optimizeSyntax(toks[0].token.inner));
-          break;
-        } else if (toks = inp.takeAPeek(CONTINUE)) {
-          res.push(toks[0]);
-          break;
-        } else {
-          res.push(inp.take()[0]);
-        }
+    var natives = {
+      Boolean   : typeofAndObjTag('boolean', 'Boolean'),
+      Number    : typeofAndObjTag('number', 'Number'),
+      String    : typeofAndObjTag('string', 'String'),
+      Function  : typeofAndObjTag('function', 'Function'),
+      RegExp    : objTag('RegExp'),
+      Date      : objTag('Date'),
+      Math      : objTag('Math'),
+      Object    : objTag('Object'),
+      Array: function(ref, env) {
+        letstx $ref = ref;
+        return #{ Array.isArray
+                  ? Array.isArray($ref) 
+                  : Object.prototype.toString.call($ref) === '[object Array]' };
+      },
+      NaN: function(ref, env) {
+        letstx $ref = ref;
+        return #{ Number.isNaN
+                  ? Number.isNaN($ref)
+                  : typeof $ref === 'number' && $ref !== +$ref };
       }
-      return res;
     }
-    function optimizeIfs(stx) {
-      var pred  = stx[1];
-      var block = stx[2];
-      var inner = input(optimizeSyntax(block.token.inner));
-      var toks  = inner.takeAPeek(IF, PARENS, BRACES);
-      if (toks && inner.length === 0) {
-        pred.token.inner = pred.token.inner.concat(makePunc('&&', here), toks[1]);
-        stx[2] = toks[2];
-      } else if (toks) {
-        block.token.inner = toks.concat(inner.rest());
-      } else {
-        block.token.inner = inner.rest();
+    function typeofAndObjTag(type, tag) {
+      return function(ref, env) {
+        letstx $type = [makeValue(type, here)],
+               $str = [makeValue('[object ' + tag + ']', here)],
+               $ref = ref;
+        return #{ typeof $ref === $type ||
+                  Object.prototype.toString.call($ref) === $str };
       }
-      return stx;
     }
-    function optimizeElses(stx) {
-      var block = stx[1];
-      var inner = input(optimizeSyntax(block.token.inner));
-      var toks  = inner.takeAPeek(IF, PARENS, BRACES);
-      if (toks && inner.length === 0) {
-        return [stx[0]].concat(toks);
-      } else if (toks) {
-        block.token.inner = toks.concat(inner.rest());
-      } else {
-        block.token.inner = inner.rest();
+    function objTag(tag) {
+      return function(ref, env) {
+        letstx $str = [makeValue('[object ' + tag + ']', here)],
+               $ref = ref;
+        return #{ Object.prototype.toString.call($ref) === $str };
       }
-      return stx;
-    }
-    function optimizeFors(stx) {
-      var inner = optimizeSyntax(stx[2].token.inner);
-      for (var i = 0, t; t = inner[i]; i++) {
-        if (matchesToken({ type: T.Keyword, value: 'continue' }, t)) {
-          inner = inner.slice(0, i);
-          break;
-        }
-      }
-      stx[2].token.inner = inner;
-      return stx;
     }
 
     return compile(parse(#{ $body ... }));
@@ -1409,6 +1239,16 @@ let match = macro {
   case { $ctx $op:expr { $body ... } } => {
     return #{
       ($sparkler__compile $ctx anonymous { $body ... }.call(this, $op))
+    }
+  }
+  case { $ctx ($op:expr) { $body ... } } => {
+    return #{
+      ($sparkler__compile $ctx anonymous { $body ... }.call(this, $op))
+    }
+  }
+  case { $ctx ($op:expr, $rest:expr (,) ...) { $body ... } } => {
+    return #{
+      ($sparkler__compile $ctx anonymous { $body ... }.call(this, $op, $rest (,) ...))
     }
   }
   case { _ } => {

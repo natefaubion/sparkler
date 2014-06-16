@@ -1,121 +1,76 @@
-// Parser
-// ------
-
-var T        = parser.Token;
-var EQ       = { type: T.Punctuator, value: '=' };
-var ARROW    = { type: T.Punctuator, value: '=>' };
-var REST     = { type: T.Punctuator, value: '...' };
-var COLON    = { type: T.Punctuator, value: ':' };
-var AT       = { type: T.Punctuator, value: '@' };
-var COMMA    = { type: T.Punctuator, value: ',' };
-var PERIOD   = { type: T.Punctuator, value: '.' };
-var WILDCARD = { type: T.Punctuator, value: '*' };
-var SCOLON   = { type: T.Punctuator, value: ';' };
-var UNDEF    = { type: T.Identifier, value: 'undefined' };
-var VOID     = { type: T.Keyword,    value: 'void' };
-var CASE     = { type: T.Keyword,    value: 'case' };
-var VAR      = { type: T.Keyword,    value: 'var' };
-var IF       = { type: T.Keyword,    value: 'if' };
-var ELSE     = { type: T.Keyword,    value: 'else' };
-var FOR      = { type: T.Keyword,    value: 'for' };
-var RETURN   = { type: T.Keyword,    value: 'return' };
-var CONTINUE = { type: T.Keyword,    value: 'continue' };
-var BRACKETS = { type: T.Delimiter,  value: '[]' };
-var PARENS   = { type: T.Delimiter,  value: '()' };
-var BRACES   = { type: T.Delimiter,  value: '{}' };
-var IDENT    = { type: T.Identifier };
-var BOOL     = { type: T.BooleanLiteral };
-var NULL     = { type: T.NullLiteral };
-var STRING   = { type: T.StringLiteral };
-var NUMBER   = { type: T.NumericLiteral };
-
-// For consuming syntax arrays.
-function input(stx) {
-  var pos = 0;
-  var inp = {
-    length: stx.length,
-    buffer: stx,
-    peek: peek,
-    take: take,
-    takeAPeek: takeAPeek,
-    back: back,
-    rest: rest
-  };
-
-  return inp;
-
-  function peek() {
-    if (arguments.length === 0) {
-      return [stx[pos]];
-    }
-    if (typeof arguments[0] === 'number') {
-      if (inp.length < arguments[0]) return;
-      return stx.slice(pos, pos + arguments[0]);
-    }
-    var res = [];
-    for (var i = 0, j = pos, t, a, m; i < arguments.length; i++) {
-      a = arguments[i];
-      t = stx[j++];
-      if (!matchesToken(a, t)) return;
-      res.push(t);
-    }
-    return res;
-  }
-
-  function take(len) {
-    var res = stx.slice(pos, pos + (len || 1));
-    pos += len || 1;
-    inp.length -= len || 1;
-    return res;
-  }
-
-  function takeAPeek() {
-    var res = peek.apply(null, arguments);
-    if (res) return take(res.length);
-  }
-
-  function back(len) {
-    pos -= len || 1;
-    inp.length += len || 1;
-  }
-
-  function rest() {
-    return stx.slice(pos);
-  }
-}
+var T          = parser.Token;
+var EQ         = { type: T.Punctuator, value: '=' };
+var ARROW      = { type: T.Punctuator, value: '=>' };
+var REST       = { type: T.Punctuator, value: '...' };
+var COLON      = { type: T.Punctuator, value: ':' };
+var AT         = { type: T.Punctuator, value: '@' };
+var COMMA      = { type: T.Punctuator, value: ',' };
+var PERIOD     = { type: T.Punctuator, value: '.' };
+var WILDCARD   = { type: T.Punctuator, value: '*' };
+var SCOLON     = { type: T.Punctuator, value: ';' };
+var UNDEF      = { type: T.Identifier, value: 'undefined' };
+var VOID       = { type: T.Keyword,    value: 'void' };
+var CASE       = { type: T.Keyword,    value: 'case' };
+var VAR        = { type: T.Keyword,    value: 'var' };
+var IF         = { type: T.Keyword,    value: 'if' };
+var ELSE       = { type: T.Keyword,    value: 'else' };
+var FOR        = { type: T.Keyword,    value: 'for' };
+var RETURN     = { type: T.Keyword,    value: 'return' };
+var CONTINUE   = { type: T.Keyword,    value: 'continue' };
+var BRACKETS   = { type: T.Delimiter,  value: '[]' };
+var PARENS     = { type: T.Delimiter,  value: '()' };
+var BRACES     = { type: T.Delimiter,  value: '{}' };
+var IDENT      = { type: T.Identifier };
+var BOOL       = { type: T.BooleanLiteral };
+var NULL       = { type: T.NullLiteral };
+var STRING     = { type: T.StringLiteral };
+var NUMBER     = { type: T.NumericLiteral };
+var PUNC       = { type: T.Punctuator };
 
 function parse(stx) {
   var inp = input(stx);
   var cases = [];
-  var patts = {};
+  var patts = [];
+  var i = 0;
+
   while (inp.length) {
     var list = scanArgumentList(inp);
-    var first = list[0]; // Keep around in case of error.
+    var first = list[0];
     var guard = scanGuard(inp);
     var body = scanCaseBody(inp);
-    var args = parseArgumentList(input(list));
+    var inp2 = input(list, { idents: [] });
+    var args = parseArgumentList(inp2);
 
-    // Cases can have the same arguments but different guards.
     if (!guard.length) {
-      if (patts.hasOwnProperty(args.pattern)) {
-        syntaxError(first, 'Duplicate argument case: (' + args.pattern + ')');
+      if (patts.some(function(p) { return p.equals(args) })) {
+        syntaxError(first, 'Duplicate case');
       } else {
-        patts[args.pattern] = true;
+        patts.push(args);
       }
     }
 
-    cases.push({
-      args: args,
-      guard: guard,
-      body: body.map(function(b) {
-        // We don't want to optimize user code at the end, so we mark it as
-        // such to avoid it.
-        b.userCode = true;
-        return b;
-      })
+    body.forEach(function(b) {
+      b.userCode = true;
     });
+
+    cases.push(args.unapply(function(v, bs) {
+      var b = Leaf(Ann(Body(), { stx: body, stashed: inp2.state.idents }));
+      var g = guard.length
+        ? Branch(Ann(Guard(), { stx: guard, stashed: inp2.state.idents }), [b])
+        : b;
+      return Branch(Ann(Case(), { index: i++ }), [Branch(v, bs), g]);
+    }));
   }
-  return cases;
+
+  var len = Math.max.apply(null, cases.map(function(c) {
+    return c.branches[0].node.ann.length;
+  }));
+
+  cases.forEach(function(c) {
+    c.branches[0].node.ann.length = len;
+  });
+
+  return Branch(Ann(Fun(len), {}), cases);
 }
 
 function scanArgumentList(inp) {
@@ -161,6 +116,7 @@ function scanCaseBody(inp) {
     return forceReturn(res[0].expose().token.inner);
   }
 
+  // TODO: rewrite with getExpr as this can lead to hard-to-decipher errors.
   res = [];
   while (inp.length) {
     if (inp.takeAPeek(COMMA)) break;
@@ -170,43 +126,27 @@ function scanCaseBody(inp) {
   return prependReturn(res);
 }
 
-function matchesToken(tmpl, t) {
-  if (t && t.length === 1) t = t[0];
-  if (!t || tmpl.type && t.token.type !== tmpl.type 
-         || tmpl.value && t.token.value !== tmpl.value) return false;
-  return true;
-}
-
-function prependReturn(stx) {
-  if (matchesToken({ type: T.Keyword, value: 'return' }, stx[0])) {
-    return stx;
-  }
-  var ret = makeKeyword('return', stx[0])
-  return [ret].concat(stx);
-}
-
-function forceReturn(stx) {
-  var needsReturn = true;
-  var inp = input(stx);
-  var res = [], toks;
-  while (inp.length) {
-    if (toks = inp.takeAPeek({ type: T.Keyword }, PARENS, RETURN)) {
-      res = res.concat(toks);
-    } else if (toks = inp.takeAPeek(RETURN)) {
-      needsReturn = false;
-      res.push(toks[0]);
-    } else {
-      res.push(inp.take()[0]);
-    }
-  }
-  if (needsReturn) res.push(makeKeyword('return', here));
-  return res;
-}
-
 function parseArgumentList(inp) {
-  return inp.length
-    ? $arguments(parseRestPatterns(inp).map($argument))
-    : $arguments([$unit()]);
+  if (!inp.length) {
+    return Branch(Ann(Args(), { length: 0 }),
+                  [Branch(Ann(Arg(0), {}),
+                          [Leaf(Ann(Unit(), {}))])]);
+  }
+  var len = 0;
+  var args = parseRestPatterns(inp).map(function(p, i, ps) {
+    if (p.node.value.isRest) {
+      if (i === ps.length - 1) {
+        p.node.ann.argRest = true;
+        p.node.ann.start = i;
+      } else {
+        syntaxError(p.args[1].stx, 'Rest arguments are only allowed at the end');
+      }
+    } else {
+      len++;
+    }
+    return Branch(Ann(Arg(i), {}), [p]);
+  });
+  return Branch(Ann(Args(), { length: len }), args);
 }
 
 function parseRestPatterns(inp) {
@@ -230,38 +170,44 @@ function parsePattern(inp) {
 
 function parseRest(inp) {
   var res = inp.takeAPeek(REST);
-  if (res) return $rest(res, parsePattern(inp) || $wildcard());
+  if (res) {
+    var len = inp.state.idents.length;
+    var patt = parsePattern(inp);
+    var idents = inp.state.idents.slice(len);
+    var names = idents.map(unwrapSyntax);
+    return Leaf(Ann(Rest(patt || Leaf(Ann(Wild(), {})), names),
+                    { stx: res, stashed: inp.state.idents.slice(len) }));
+  }
 }
 
 function parseWildcard(inp) {
   var res = inp.takeAPeek(WILDCARD);
-  if (res) return $wildcard(res);
+  if (res) return Leaf(Ann(Wild(), { stx: res }));
 }
 
 function parseUndefined(inp) {
   var res = inp.takeAPeek(VOID);
   if (res) {
-    var stx = inp.peek(1);
-    if (stx[0].token.type !== T.Punctuator) {
-      inp.take(1);
-      return $undefined(res);
+    // TODO: rewrite with getExpr. This only assumes one token, but void can
+    // take an expression.
+    if (!inp.peek(PUNC)) {
+      return Leaf(Ann(Undef(), { stx: res.concat(inp.take(1)) }));
     }
   }
   res = inp.takeAPeek(UNDEF);
-  if (res) return $undefined(res);
+  if (res) return Leaf(Ann(Undef(), { stx: res }));
 }
 
 function parseLiteral(inp) {
   var stx = inp.peek(1);
   if (matchesToken(NULL, stx) || matchesToken(NUMBER, stx) ||
       matchesToken(STRING, stx) || matchesToken(BOOL, stx)) {
-    return $literal(inp.take(1));
+    var res = inp.take(1);
+    return Leaf(Ann(Lit(unwrapSyntax(res)), { stx: res }));
   }
 }
 
 function parseExtractor(inp) {
-  // Extractors are allowed to be part of an object path, so we have to consume
-  // the entire path, alternating between identifiers and periods.
   var stx = [], tok;
   while (tok = inp.peek()) {
     if (stx.length === 0 && matchesToken(IDENT, tok) ||
@@ -276,72 +222,126 @@ function parseExtractor(inp) {
     var name = stx[0].token.value;
     if (name[0].toUpperCase() === name[0] &&
         name[0] !== '$' && name[0] !== '_') {
-      var ext = parseUnapply(inp) || parseObject(inp);
-      return $extractor(stx.reverse(), ext);
+      var ext = parseUnapply(inp) || parseUnapplyObj(inp) || Leaf(Ann(Inst(), {}));
+      var nameStr = stx.reverse().map(unwrapSyntax).join('');
+      extend(ext.node.ann, { extractor: stx, name: nameStr });
+      return Branch(Ann(Extractor(nameStr), { stx: stx }), [ext]);
     } else {
       inp.back(stx.length);
     }
   }
 }
 
-function parseArray(inp) {
-  var stx = inp.takeAPeek(BRACKETS);
+function parseArrayLike(delim, ctr, inp) {
+  var stx = inp.takeAPeek(delim);
   if (stx) {
-    var inp2 = input(stx[0].token.inner);
-    return $array(parseRestPatterns(inp2));
+    var inp2 = input(stx[0].expose().token.inner, inp.state);
+    var inner = parseRestPatterns(inp2)
+    var len = arrayLen(inner);
+
+    var withIndex = inner.reduce(function(acc, p, i, arr) {
+      var ann = {}, pann, stop, node;
+      if (p.node.value.isRest) {
+        if (i === 0) {
+          stop = -(arr.length - 1);
+        } else if (i === arr.length - 1) {
+          stop = 0;
+        } else {
+          stop = -(arr.length - i - 1);
+        }
+        extend(p.node.ann, { start: i, stop: stop });
+        node = Ann(IndexNoop(acc[0] + 1), ann);
+      } else {
+        stop = acc[0] + 1;
+        node = Ann(Index(acc[0]), ann);
+      }
+      return [stop, acc[1].concat(Branch(node, [p]))];
+    }, [0, []]);
+
+    return Branch(Ann(ctr(), {}), [Branch(len, withIndex[1])]);
   }
 }
 
+function parseArray(inp) {
+  return parseArrayLike(BRACKETS, Arr, inp);
+}
+
 function parseUnapply(inp) {
-  var stx = inp.takeAPeek(PARENS);
+  return parseArrayLike(PARENS, Unapply, inp);
+}
+
+function parseObjectLike(ctr, inp) {
+  var stx = inp.takeAPeek(BRACES);
   if (stx) {
-    var inp2 = input(stx[0].token.inner);
-    return $unapply(parseRestPatterns(inp2));
+    var inp2 = input(stx[0].expose().token.inner, inp.state);
+    var inner = commaSeparated(parseObjectPattern, inp2);
+    return Branch(Ann(ctr(), {}), inner);
+  }
+}
+
+function parseUnapplyObj(inp) {
+  var res = parseObjectLike(UnapplyObj, inp);
+  if (res) {
+    res.branches.forEach(function(b) {
+      b.node.ann.hasOwn = true;
+    });
+    return res;
   }
 }
 
 function parseObject(inp) {
-  var stx = inp.takeAPeek(BRACES);
-  if (stx) {
-    var inp2 = input(stx[0].token.inner);
-    return $object(commaSeparated(parseObjectPattern, inp2));
-  }
+  return parseObjectLike(Obj, inp);
 }
 
 function parseObjectPattern(inp) {
   var res = parseBinder(inp);
-  if (res) return $key(res);
-
-  var tok = inp.takeAPeek({ type: T.Identifier }) ||
-            inp.takeAPeek({ type: T.StringLiteral });
-
+  if (res) {
+    var ann = res.node.ann;
+    var name = unwrapSyntax(ann.idents[0]);
+    return Branch(Ann(KeyIn(name), ann),
+                  [Branch(Ann(KeyVal(name), ann), [res])]);
+  }
+  var tok = inp.takeAPeek(IDENT) || inp.takeAPeek(STRING);
   if (tok) {
-    var key = tok[0].token.type === T.Identifier
-      ? $identifier(tok)
-      : $literal(tok)
-
+    var name = unwrapSyntax(tok);
+    var ann = { stx: tok };
     if (inp.takeAPeek(COLON)) {
       var patt = parsePattern(inp);
-      if (patt) return $keyValue(key, patt);
+      if (patt) {
+        return Branch(Ann(KeyIn(name), ann),
+                      [Branch(Ann(KeyVal(name), ann), [patt])]);
+      }
       syntaxError(inp.take(), null, 'not a pattern');
     }
-
-    return $key(key);
+    if (matchesToken(IDENT, tok)) {
+      inp.state.idents.push(tok[0]);
+      return Branch(Ann(KeyIn(name), ann),
+                    [Branch(Ann(KeyVal(name), ann),
+                            [Leaf(Ann(Wild(), { idents: [tok[0]] }))])]);
+    }
+    return Leaf(Ann(KeyIn(name), ann));
   }
 }
 
 function parseBinder(inp) {
-  var res = inp.takeAPeek({ type: T.Identifier }, AT);
+  var res = inp.takeAPeek(IDENT, AT);
   if (res) {
     var patt = parsePattern(inp);
-    if (patt) return $binder([res[0]], patt);
+    if (patt) {
+      inp.state.idents.push(res[0]);
+      patt.node.ann.idents = [res[0]];
+      return patt;
+    }
     syntaxError(inp.take(), null, 'not a pattern');
   }
 }
 
 function parseIdentifier(inp) {
   var res = inp.takeAPeek({ type: T.Identifier });
-  if (res) return $identifier(res);
+  if (res) {
+    inp.state.idents.push(res[0]);
+    return Leaf(Ann(Wild(), { idents: [res[0]] }));
+  }
 }
 
 function commaSeparated(parser, inp, cb) {
@@ -363,179 +363,20 @@ function commaSeparated(parser, inp, cb) {
 function multiRestCallback() {
   var count = 0;
   return function(res, inp) {
-    if (res.type === 'rest' && count++) {
-      syntaxError(res.stx, 'Multiple ...s are not allowed');
-    }
-    return true;
+    return res.unapply(function(v, ann) {
+      if (v.tag === 'Rest' && count++) {
+        syntaxError(ann.stx, 'Multiple ...s are not allowed');
+      }
+      return true;
+    });
   }
 }
 
-// Nodes
-// -----
-
-// Each node returns a normalized pattern so we can do easy comparisons during
-// the branch optimization phase.
-
-function $wildcard() {
-  return { 
-    type: 'wildcard',
-    pattern: '*'
-  };
-}
-
-function $undefined() {
-  return { 
-    type: 'undefined', 
-    pattern: 'undefined'
-  };
-}
-
-function $literal(stx) {
-  var val  = stx[0].token.value;
-  var type = stx[0].token.type;
-  return {
-    type: 'literal',
-    pattern: type === T.BooleanLiteral || 
-             type === T.NullLiteral ? val : JSON.stringify(val),
-    stx: stx
-  };
-}
-
-function $extractor(name, extractor) {
-  var namePatt = name.reduce(function(acc, n) {
-    return acc + n.token.value;
-  }, '');
-  return {
-    type: 'extractor',
-    pattern: namePatt + (extractor ? extractor.pattern : ''),
-    stx: name,
-    children: extractor && [extractor]
-  };
-}
-
-function $arguments(args) {
-  // Since argument length isn't strict, rest arguments are only allowed at the
-  // trailing end of the argument list.
-  args.forEach(function(x, i) {
-    if (x.pattern.indexOf('...') === 0 && i !== args.length - 1) {
-      syntaxError(x.children[0].stx, 'Rest arguments are only allowed at the end');
-    }
-  });
-  return {
-    type: 'arguments',
-    pattern: joinPatterns(',', args),
-    children: args
-  };
-}
-
-function $argument(patt) {
-  return {
-    type: 'argument',
-    pattern: patt.pattern,
-    children: [patt]
-  };
-}
-
-function $rest(stx, patt) {
-  return {
-    type: 'rest',
-    pattern: '...' + patt.pattern,
-    children: [patt],
-    stx: stx
-  };
-}
-
-function $array(items) {
-  return {
-    type: 'array',
-    pattern: '[' + joinPatterns(',', items) + ']',
-    children: items
-  };
-}
-
-function $unapply(items) {
-  return {
-    type: 'unapply',
-    pattern: '(' + joinPatterns(',', items) + ')',
-    children: items
-  };
-}
-
-function $object(items) {
-  // Sort the keys since their order does not matter to execution. This will
-  // allow two argument nodes that destructure the same keys, but in different
-  // orders, to still be grafted together.
-  items = _.sortBy(items, function(i) {
-    return i.pattern;
-  });
-  return {
-    type: 'object',
-    pattern: '{' + joinPatterns(',', items) + '}',
-    children: items
-  };
-}
-
-function $keyValue(key, value) {
-  // `key` can be an identifier or string literal. If it's an identifier we
-  // need to normalize it to a quoted string.
-  var pattern = key.type === 'literal'
-    ? key.pattern
-    : JSON.stringify(key.name)
-
-  return {
-    type: 'keyValue',
-    pattern: pattern + ':' + value.pattern,
-    stx: key.stx,
-    children: [value]
-  };
-}
-
-function $key(key) {
-  // `key` can be a binder, identifier, or string literal.
-  var pattern = key.type === 'literal'
-    ? key.pattern + ':*'
-    : JSON.stringify(key.name) + ':' + key.pattern;
-
-  return {
-    type: 'key',
-    pattern: pattern,
-    children: [key]
-  };
-}
-
-function $binder(ident, patt) {
-  return {
-    type: 'binder',
-    pattern: '$@' + patt.pattern,
-    name: ident[0].token.value,
-    stx: ident,
-    children: [patt] 
-  };
-}
-
-function $identifier(ident) {
-  return {
-    type: 'identifier',
-    // All identifiers have the same pattern, because they represent the exact
-    // same logic. For example:
-    //
-    //     function {
-    //       case (a, 12) => a + 12
-    //       case (b, 42) => b + 42
-    //     }
-    // 
-    // Here, `a` and `b` represent the same branch logic. Their name only
-    // matters to the function body.
-    pattern: '$',
-    name: ident[0].token.value,
-    stx: ident
-  };
-}
-
-function $unit() {
-  return {
-    type: 'unit',
-    pattern: '',
-    children: []
-  };
+function arrayLen(bs) {
+  var ctr = bs.reduce(function(ctr, b) {
+    return b.node.value.isRest
+      ? [LenMin, ctr[1]]
+      : [ctr[0], ctr[1] + 1]
+  }, [Len, 0]);
+  return Ann(ctr[0](ctr[1]), {});
 }

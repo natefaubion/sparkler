@@ -1,464 +1,576 @@
-// Compiler
-// -------
+function compile(ast) {
+  return compilePattern(astToTree(ast), environment({ refs: {} }), []);
+}
 
-// The compiler is written with continuations. Each pattern compiler takes an
-// env and a continuation, with compilation being triggered by applying the
-// env to the continuation. The env and continuation get passed down through
-// the decision tree, and once we get to a "leaf" the env will have collected
-// all the references we need to alias for the branch body. Code is then
-// generated starting at the innermost leaf, getting subsequently wrapped as it
-// works its way back up to the root.
+function astToTree(ast) {
+  var level = 2;
+  var cases = ast.branches.map(function(b) { return [b.branches[0]] });
+  var frame = ast.branches.map(function(b) { return [b.branches[1]] });
+  var gr = groupRows(cases, [Frame(frame, 0)], level);
+  return Branch(ast.node, [transformCase(gr[0].node, gr[0].matrix, gr[0].stack, level)]);
+}
 
-// The env is (mostly) immutable since we have to do a lot of branching.
-function environment(vars) {
-  var env = _.extend({
-    set: set,
-    addName: addName,
-    addHead: addHead
-  }, vars);
+function transformCase(c, m, stack, level) {
+  c.ann.level = level;
 
-  return env;
-
-  function set(mod) {
-    return environment(_.extend({}, vars, mod));
+  if (!stack.length) {
+    return m.length
+      ? Branch(c, m.reduce(concat))
+      : Leaf(c);
   }
 
-  // Whenever an identifier is encountered in a pattern, it's pushed onto the
-  // name queue so we can make the references at the end of a branch.
-  function addName(stx) {
-    return set({
-      names: vars.names.concat({ stx: stx })
-    });
+  var nl = level + 1;
+  var gr;
+
+  if (!m.length) {
+    nl = stack[0].level;
+    gr = groupRows(stack[0].matrix, stack.slice(1), stack[0].level);
+  } else if (isMatrixType(c.value)) {
+    gr = groupRows(scoreMatrix(normalizeMatrix(c, m)), stack, level);
+  } else {
+    gr = groupRows(m, stack, level);
   }
 
-  // Head references are global to the function being generated, so we just
-  // mutate it.
-  function addHead(name, stx) {
-    if (!vars.head[name]) vars.head[name] = stx;
-    return env;
+  var head = transformCase(gr[0].node, gr[0].matrix, gr[0].stack, nl);
+  var rest = gr[1].length && transformCase(c, gr[1], gr[2], level).branches || [];
+
+  return Branch(c, [head].concat(rest).reduceRight(function(acc, c) {
+    if (acc.length && acc[0].node.equals(c.node)) {
+      acc[0] = Branch(mergeNodes(c.node, acc[0].node), c.branches.concat(acc[0].branches));
+    } else {
+      acc.unshift(c);
+    }
+    return acc;
+  }, []));
+}
+
+function groupRows(m, stack, level) {
+  function rowHeadStack(r, s) {
+    return r.length === 1 ? s : [Frame([r.slice(1)], level)].concat(s);
+  }
+
+  var head = m[0];
+  var rest = m.slice(1);
+  var init = Group(head[0].node,
+                   head[0].branches ? [head[0].branches] : [],
+                   rowHeadStack(head, stackRow(stack, 0)));
+
+  return rest.reduce(function(acc, r, i) {
+    var g = acc[0];
+    var c = r[0];
+    if (!acc[1].length && canGroupCases(head[0], c)) {
+      var n = mergeNodes(g.node, c.node);
+      var m = c.branches ? g.matrix.concat([c.branches]) : g.matrix;
+      var s = stackZip(g.stack, rowHeadStack(r, stackRow(stack, i + 1)));
+      acc[0] = Group(n, m, s);
+    } else {
+      acc[1].push(r);
+      acc[2] = stackZip(acc[2], stackRow(stack, i + 1));
+    }
+    return acc;
+  }, [init, [], []]);
+}
+
+function mergeNodes(c1, c2) {
+  return Ann(c1.value,
+             extend({}, c1.ann, {
+               idents: (c1.ann.idents || []).concat(c2.ann.idents || [])
+             }));
+}
+
+function canGroupCases(c1, c2) {
+  if (canGroup.hasOwnProperty(c1.node.value.tag)) {
+    return canGroup[c1.node.value.tag](c1, c2);
+  } else {
+    return c1.node.equals(c2.node);
   }
 }
 
-var TO_STR_REF = makeRef(#{ Object.prototype.toString });
-
-var natives = {
-  'Boolean'    : makeRef(#{ '[object Boolean]' }),
-  'Number'     : makeRef(#{ '[object Number]' }),
-  'String'     : makeRef(#{ '[object String]' }),
-  'RegExp'     : makeRef(#{ '[object RegExp]' }),
-  'Date'       : makeRef(#{ '[object Date]' }),
-  'Array'      : makeRef(#{ '[object Array]' }),
-  'Object'     : makeRef(#{ '[object Object]' }),
-  'Function'   : makeRef(#{ '[object Function]' }),
-  'Undefined'  : makeRef(#{ '[object Undefined]' }),
-  'Null'       : makeRef(#{ '[object Null]' }),
-  'Math'       : makeRef(#{ '[object Math]' }),
-  'Arguments'  : makeRef(#{ '[object Arguments]' }),
-}
-
-var compilers = {
-  'argument'   : compileArgument,
-  'unit'       : compileUnit,
-  'wildcard'   : compileWildcard,
-  'undefined'  : compileUndefined,
-  'literal'    : compileLiteral,
-  'identifier' : compileIdentifier,
-  'binder'     : compileBinder,
-  'extractor'  : compileExtractor,
-  'object'     : compileObject,
-  'keyValue'   : compileKeyValue,
-  'key'        : compileKey,
-  'unapply'    : compileArray,
-  'array'      : compileArray,
-  'rest'       : compileRest,
+var canGroup = {
+  Arg: canGroupChild,
+  Index: canGroupChild,
 };
 
-function compile(cases) {
-  return shouldCompileBacktrack(cases)
-    ? compileBacktrack(cases)
-    : compileSimple(cases);
+function canGroupChild(c1, c2) {
+  return c1.node.equals(c2.node)
+      && canGroupCases(c1.branches[0], c2.branches[0]);
 }
 
-function compilePattern(patt, env, cont) {
-  return compilers[patt.type](patt, env, cont);
+function normalizeMatrix(c, m) {
+  assert(isMatrixType(c.value), 'Unsupported matrix type: ' + c.value.tag);
+  return normalize[c.value.tag](c, m);
 }
 
-function compileArgument(patt, env, cont) {
-  var child = patt.children[0];
-  if (child.type === 'rest') {
-    var childEnv = env.set({
-      ref: { name: #{ arguments }},
-      start: env.level,
-      stop: 0,
-      level: env.level + 1
+function isMatrixType(n) {
+  return normalize.hasOwnProperty(n.tag);
+}
+
+var normalize = {
+  Obj        : normalizeObj,
+  UnapplyObj : normalizeObj,
+  Len        : normalizeNoop,
+  LenMin     : normalizeNoop,
+  Args: function(n, m) {
+    var max = Math.max.apply(null, m.map(function(r) { return r.length }));
+    return normalizeVarLen(max, Arg, m)
+  }
+};
+
+function normalizeNoop(n, m) {
+  return m;
+}
+
+function normalizeObj(n, m) {
+  var layout = m.reduceRight(function(acc, r) {
+    return r.reduce(function(a, c) {
+      a[0][0].keys[c.node.value.key] = true;
+      a[1][c.node.value.key] = true;
+      return a;
+    }, [[{ keys: {}, row: r }].concat(acc[0]), acc[1]]);
+  }, [[], {}]);
+
+  return layout[0].map(function(r) {
+    Object.keys(layout[1]).forEach(function(k) {
+      if (!r.keys[k]) r.row.push(Leaf(Ann(KeyNoop(k), {})));
     });
-    return compilePattern(child, childEnv, cont);
-  }
-  
-  else {
-    var ref = makeArgument(env.level, env);
-    var childEnv = env.set({ ref: ref, level: env.level + 1 });
-    var bod = compilePattern(child, childEnv, cont);
-    // If the reference is from a declared function argument instead of from
-    // `arguments` indexing, it won't have assignment syntax. Also, if it's a
-    // wildcard, it doesn't need a reference.
-    return ref.stx && patt.pattern !== '*' ? ref.stx.concat(bod) : bod;
-  }
+    return r.row.sort(sortObjKeys);
+  });
 }
 
-function compileUnit(patt, env, cont) {
-  letstx $bod ... = cont(env);
-  return #{
-    if (arguments.length === 0) { $bod ...  }
-  }
-}
-
-function compileWildcard(patt, env, cont) {
-  return cont(env);
-}
-
-function compileUndefined(patt, env, cont) {
-  letstx $bod ... = cont(env);
-  letstx $ref = env.ref.name;
-  return #{
-    if ($ref === void 0) { $bod ... }
-  }
-}
-
-function compileLiteral(patt, env, cont) {
-  letstx $bod ... = cont(env);
-  letstx $ref = env.ref.name;
-  letstx $lit = patt.stx;
-  return #{
-    if ($ref === $lit) { $bod ... }
-  }
-}
-
-function compileIdentifier(patt, env, cont) {
-  env = env.addName(env.ref.name);
-  return cont(env);
-}
-
-function compileBinder(patt, env, cont) {
-  env = env.addName(env.ref.name);
-  return compilePattern(patt.children[0], env, cont);
-}
-
-function compileExtractor(patt, env, cont) {
-  var child = patt.children && patt.children[0];
-  var clsName = patt.stx[patt.stx.length - 1].token.value;
-
-  if (child && child.type === 'unapply') {
-    var arrRef = makeRef();
-    var childEnv = env.set({ noCheck: true, ref: arrRef });
-    letstx $bod ... = compilePattern(child, childEnv, cont);
-    letstx $cls ... = patt.stx;
-    letstx $arr = arrRef.name;
-    letstx $ref = env.ref.name;
-    return #{
-      var $arr = $cls ... .unapply($ref);
-      $bod ...
+function normalizeVarLen(len, ctr, m) {
+  return m.map(function(r) {
+    if (r.length >= len) {
+      return r;
+    } else {
+      return r.concat(repeat(len - r.length, function(i) {
+        return Leaf(Ann(ctr(r.length - i + 1), {}));
+      }));
     }
-  }
-  
-  else if (child && child.type === 'object') {
-    var objRef = makeRef();
-    var childEnv = env.set({ noCheck: true, hasOwn: true, ref: objRef });
-    letstx $bod ... = compilePattern(child, childEnv, cont);
-    letstx $cls ... = patt.stx;
-    letstx $obj = objRef.name;
-    letstx $ref = env.ref.name;
-    return #{
-      var $obj = $cls ... .unapplyObject($ref);
-      $bod ...
+  });
+}
+
+function sortObjKeys(a, b) {
+  a = a.node.value.key;
+  b = b.node.value.key;
+  return a < b ? -1 : b < a ? 1 : 0;
+}
+
+function scoreMatrix(m) {
+  var scores = m.map(function(c) {
+    return c.map(scorePattern);
+  });
+
+  var ranks = [];
+  for (var i = 0; i < scores[0].length; i++) {
+    var s = 0;
+    for (var j = 0; j < scores.length; j++) {
+      if (scores[j][i] > 0) {
+        s += scores[j][i];
+      } else {
+        break;
+      }
     }
-  }
-  
-  else if (patt.stx.length === 1 && natives[clsName]) {
-    env = env
-      .addHead('toStr', TO_STR_REF)
-      .addHead(clsName, natives[clsName]);
-    letstx $bod ... = cont(env);
-    letstx $toStr = TO_STR_REF.name;
-    letstx $natStr = natives[clsName].name;
-    letstx $ref = env.ref.name;
-    return #{
-      if ($toStr.call($ref) === $natStr) { $bod ... }
+    for (var k = 0; k <= ranks.length; k++) {
+      if (!ranks[k] || s > ranks[k][0]) {
+        ranks.splice(k, 0, [s, i]);
+        break;
+      }
     }
   }
 
-  else if (patt.stx.length === 1 && clsName === 'NaN') {
-    env = env
-      .addHead('toStr', TO_STR_REF)
-      .addHead(clsName, natives.Number);
-    letstx $bod ... = cont(env);
-    letstx $toStr = TO_STR_REF.name;
-    letstx $natStr = natives.Number.name;
-    letstx $ref = env.ref.name;
-    return #{
-      if ($toStr.call($ref) === $natStr && $ref !== +$ref) { $bod ... }
-    }
-  }
-  
-  else {
-    letstx $bod ... = cont(env);
-    letstx $cls ... = patt.stx;
-    letstx $ref = env.ref.name;
-    return #{
-      if ($cls ... .hasInstance
-          ? $cls ... .hasInstance($ref)
-          : $ref instanceof $cls ...) { $bod ... }
-    }
-  }
+  return m.map(function(c) {
+    return ranks.map(function(r) {
+      return c[r[1]];
+    });
+  });
 }
 
-function compileObject(patt, env, cont) {
-  var noCheck = env.noCheck;
-  var primRef = env.ref;
-  env = env.set({ ref: noCheck ? primRef : makeRef(), noCheck: false });
+function scorePattern(p) {
+  var t = p.node.value.tag;
+  return t in score ? score[t].apply(score, p.args) : 1;
+}
 
-  cont = patt.children.reduceRight(function(c, p) {
-    return function() {
-      return compilePattern(p, env, function(e) {
-        env = env.set({ names: e.names });
-        return c(env);
-      });
+function scoreChild(n, bs) {
+  return bs ? scorePattern(bs[0]) : 0;
+}
+
+var score = {
+  Arg       : scoreChild,
+  Index     : scoreChild,
+  Wild      : constant(0),
+  KeyNoop   : constant(0),
+  IndexNoop : scoreChild,
+};
+
+function stackRow(stack, i) {
+  return stack.map(function(f) {
+    return Frame([f.matrix[i]], f.level);
+  });
+}
+
+function stackZip(s1, s2) {
+  if (!s1.length) return s2;
+  if (!s2.length) return s1;
+  return s1.map(function(f, i) {
+    return f.concat(s2[i]);
+  });
+}
+
+function compilePattern(t, env, stack) {
+  var n = t.node;
+  var bs = t.branches;
+  if (t.isBranch) {
+    var c = branchCompilers[n.value.tag] || assert(false, 'Unexpected node: ' + n.value.tag);
+    var r = stack[stack.length - 1];
+    var cont = function(e, r2) {
+      var s = stack.concat([r2 || r]);
+      return bs.reduce(function(stx, b) {
+        var l = b.node.ann.level;
+        return stx.concat(compilePattern(b, e, s.slice(0, l)));
+      }, []);
     };
-  }, cont);
-
-  letstx $bod ... = cont(env);
-  letstx $ref = primRef.name;
-
-  if (noCheck) {
-    return #{
-      if ($ref != null) { $bod ... }
+    if (n.ann.idents && n.ann.idents.length) {
+      env = n.ann.idents.reduce(function(e, id) {
+        return e.stash(unwrapSyntax(id), r);
+      }, env);
     }
+    return c.apply(null, n.value.unapply().concat(n.ann, [r], env, cont, [bs]));
   } else {
-    letstx $box = env.ref.name;
+    var c = leafCompilers[n.value.tag] || assert(false, 'Unexpected leaf: ' + n.value.tag);  
+    return c.apply(null, n.value.unapply().concat(n.ann, env));
+  }
+}
+
+var branchCompilers = {
+  Fun: function(len, ann, _, env, cont) {
+    var env2 = env.set({
+      argIdents: repeat(len, function(i) {
+        return [makeIdent('a' + i, here)];
+      })
+    });
+
+    var body = cont(env2);
+    var err = #{ throw new TypeError('No match') };
+
+    letstx $name = unwrapSyntax(fnName) === 'anonymous' ? [] : fnName,
+           $args = join(makePunc(',', here), env2.argIdents),
+           $code = optimizeSyntax(body.concat(err));
+    return #{ 
+      function $name ($args) { $code }
+    }
+  },
+  Args: compileNoop,
+  Arg: function(i, ann, _, env, cont) {
+    return cont(env, env.argIdents[i]);
+  },
+  Unit: function(ann, _, env, cont) {
+    letstx $bod = cont(env);
+    return #{
+      if (arguments.length === 0) { $bod }
+    }
+  },
+  Wild: compileNoop,
+  Undef: function(ann, ref, env, cont) {
+    letstx $ref = ref,
+           $bod = cont(env);
+    return #{
+      if ($ref === void 0) { $bod }
+    }
+  },
+  Lit: function(v, ann, ref, env, cont) {
+    letstx $ref = ref,
+           $lit = ann.stx,
+           $bod = cont(env);
+    return #{ 
+      if ($ref === $lit) { $bod }
+    }
+  },
+  Extractor: compileNoop,
+  Inst: function(ann, ref, env, cont) {
+    if (natives.hasOwnProperty(ann.name)) {
+      letstx $test = natives[ann.name](ref, env),
+             $bod = cont(env);
+      return #{
+        if ($test) { $bod }
+      }
+    } else {
+      letstx $ref = ref,
+             $cls = ann.extractor,
+             $bod = cont(env);
+      return #{
+        if ($cls.hasInstance 
+            ? $cls.hasInstance($ref)
+            : $ref instanceof $cls) { $bod }
+      }
+    }
+  },
+  Unapply: function(ann, ref, env, cont) {
+    var ref2 = makeRef();
+    letstx $ref = ref,
+           $new = ref2,
+           $ext = ann.extractor,
+           $bod = cont(env, ref2);
+    return #{
+      var $new = $ext.unapply($ref);
+      if ($new != null) { $bod }
+    }
+  },
+  UnapplyObj: function(ann, ref, env, cont) {
+    var ref2 = makeRef();
+    letstx $ref = ref,
+           $new = ref2,
+           $ext = ann.extractor,
+           $bod = cont(env, ref2);
+    return #{
+      var $new = $ext.unapplyObject($ref);
+      if ($new != null) { $bod }
+    }
+  },
+  Arr: function(ann, ref, env, cont) {
+    letstx $test = natives.Array(ref, env),
+           $bod = cont(env, ref);
+    return #{
+      if ($test) { $bod }
+    }
+  },
+  Len: function(len, ann, ref, env, cont) {
+    letstx $len = [makeValue(len, here)],
+           $ref = ref,
+           $bod = cont(env);
+    return #{
+      if ($ref.length === $len) { $bod }
+    }
+  },
+  LenMin: function(len, ann, ref, env, cont) {
+    letstx $len = [makeValue(len, here)],
+           $ref = ref,
+           $bod = cont(env);
+    return #{
+      if ($ref.length >= $len) { $bod }
+    }
+  },
+  Index: function(i, ann, ref, env, cont, bs) {
+    var index = i >= 0
+      ? [makeValue(i, here)]
+      : ref.concat(makePunc('.', here),
+                   makeIdent('length', here),
+                   makePunc('-', here),
+                   makeValue(Math.abs(i), here));
+
+    if (bs.length === 1 && bs[0].node.value.isWild) {
+      if (!bs[0].node.ann.idents || !bs[0].node.ann.idents.length) {
+        return cont(env);
+      } else {
+        return cont(env, ref.concat(makeDelim('[]', index, here)));
+      }
+    }
+
+    var ref2 = makeRef();
+    letstx $ref = ref,
+           $ind = index,
+           $new = ref2,
+           $bod = cont(env, ref2);
+    return #{
+      var $new = $ref[$ind];
+      $bod
+    }
+  },
+  IndexNoop: compileNoop,
+  Obj: function(ann, ref, env, cont) {
+    var ref2 = makeRef();
+    letstx $ref = ref,
+           $new = ref2,
+           $bod = cont(env, ref2);
     return #{
       if ($ref != null) {
-        var $box = Object($ref);
-        $bod ...
+        var $new = Object($ref);
+        $bod
       }
     }
-  }
-}
-
-function makeObjectCheck(ref, key, bod, env) {
-  letstx $bod ... = bod;
-  letstx $key = key;
-  letstx $ref = ref;
-  if (env.hasOwn) {
-    return #{
-      if ($ref.hasOwnProperty($key)) { $bod ... }
-    }
-  } else {
-    return #{
-      if ($key in $ref) { $bod ... }
-    }
-  }
-}
-
-function compileKeyValue(patt, env, cont) {
-  var key = [makeValue(patt.stx[0].token.value, here)];
-  var ref = makeRef([env.ref.name, makeDelim('[]', key, here)]);
-
-  var childEnv = env.set({ ref: ref, hasOwn: false });
-  var bod = ref.stx.concat(compilePattern(patt.children[0], childEnv, cont));
-
-  return makeObjectCheck(env.ref.name, key, bod, env);
-}
-
-function compileKey(patt, env, cont) {
-  var child = patt.children[0];
-
-  if (child.type === 'literal') {
-    return makeObjectCheck(env.ref.name, child.stx, cont(env), env);
-  }
-
-  var key = [makeValue(child.name, here)];
-  var ref = makeRef([env.ref.name, makeDelim('[]', key, here)]);
-  
-  var childEnv = env.set({ ref: ref, hasOwn: false });
-  var bod = ref.stx.concat(compilePattern(child, childEnv, cont));
-
-  return makeObjectCheck(env.ref.name, [makeValue(child.name, here)], bod, env);
-}
-
-function compileArray(patt, env, cont) {
-  var noCheck = env.noCheck;
-  
-  if (!env.noCheck) {
-    env = env
-      .addHead('toStr', TO_STR_REF)
-      .addHead('Array', natives.Array)
-  }
-  env = env.set({ start: 0, noCheck: false });
-
-  var len = patt.children.length;
-  var restIndex = indexOfRest(patt);
-  var hasRest = restIndex >= 0;
-  if (hasRest) len -= 1;
-
-  if (len >= 0) {
-    cont = patt.children.reduceRight(function(c, p) {
-      return function(e) {
-        var ref, env2;
-
-        if (p.type === 'rest') {
-          var stop = -1;
-          if (restIndex === 0) stop = len;
-          if (restIndex < len) stop = len - restIndex;
-          env2 = env.set({ stop: stop });
-        }
-        
-        else {
-          var start = env.start < 0
-            ? env.ref.name.concat(makePunc('.', here), makeIdent('length', here),
-                makePunc('-', here), makeValue(Math.abs(env.start), here))
-            : [makeValue(env.start, here)];
-          ref = makeRef([env.ref.name, makeDelim('[]', start, here)]);
-          env2 = env.set({ ref: ref, start: e.start + 1 });
-        }
-
-        var bod = compilePattern(p, env2, function(e) {
-          env = env.set({ start: e.start, names: e.names });
-          return c(e);
-        });
-
-        return ref ? ref.stx.concat(bod) : bod;
+  },
+  KeyIn: function(key, ann, ref, env, cont) {
+    letstx $ref = ref,
+           $key = [makeValue(key, here)],
+           $bod = cont(env);
+    if (ann.hasOwn) {
+      return #{
+        if ($ref.hasOwnProperty($key)) { $bod }
       }
-    }, cont);
+    } else {
+      return #{
+        if ($key in $ref) { $bod }
+      }
+    }
+  },
+  KeyVal: function(key, ann, ref, env, cont, bs) {
+    if (bs.length === 1 && bs[0].node.value.isWild) {
+      if (!bs[0].node.ann.idents || !bs[0].node.ann.idents.length) {
+        return cont(env);
+      } else {
+        return cont(env, ref.concat(makeDelim('[]', [makeValue(key, here)], here)));
+      }
+    }
 
-    // We don't need to check array length in the case that a rest pattern is
-    // applied over an entire array.
-    if (hasRest && len > 0 || !hasRest) {
-      cont = function(c) {
-        return function() {
-          var op = hasRest ? #{ >= } : #{ === };
-          letstx $bod ... = c(env);
-          letstx $ref = env.ref.name;
-          letstx $len = [makeValue(len, here)];
-          letstx $op  = op;
-          return #{
-            if ($ref.length $op $len) { $bod ... }
-          }
-        }
-      }(cont);
+    var ref2 = makeRef();
+    letstx $ref = ref,
+           $new = ref2,
+           $key = [makeValue(key, here)],
+           $bod = cont(env, ref2);
+    return #{
+      var $new = $ref[$key];
+      $bod
+    }
+  },
+  KeyNoop: compileNoop,
+  Rest: function(pattern, names, ann, ref, env, cont) {
+    var refs = ann.stashed.reduce(function(acc, id) {
+      var k = unwrapSyntax(id);
+      if (!acc[2].hasOwnProperty(k)) {
+        acc[0].push(id);
+        acc[1].push(makeRef());
+        acc[2][k] = true;
+      }
+      return acc;
+    }, [[], [], {}]);
+
+    var init = refs[1].length
+      ? [makeKeyword('var', here)].concat(
+          join(makePunc(',', here), refs[1].map(function(r) {
+            return r.concat(makePunc('=', here), makeDelim('[]', [], here));
+          })),
+          makePunc(';', here))
+      : [];
+
+    var oref = makeRef(); // ok
+    var iref = makeRef(); // i
+    var sref = makeRef(); // stop
+    var lref = makeRef(); // loop
+    var aref = ann.argRest ? [makeIdent('arguments', here)] : ref;
+    var start = [makeValue(ann.start, here)];
+    var stop = withSyntax($a = aref) {
+      if (!ann.stop) {
+        return #{ $a.length };
+      } else {
+        letstx $stop = [makeValue(Math.abs(ann.stop), here)];
+        return #{ $a.length - $stop };
+      }
+    };
+
+    var end = Leaf(Ann(RestEnd(), { stashed: refs[0], refs: refs[1] }));
+    var g = groupRows([[pattern]], [Frame([[end]], 0)], 1)[0];
+    var t = transformCase(g.node, g.matrix, g.stack, 1);
+    // var t = transformCases([pattern], [Frame([[end]], 0)], 1)[0];
+    var s = compilePattern(t, environment({ refs: {} }), [void 0, lref]);
+
+    var env2 = ann.stashed.reduce(function(e, id, i) {
+      return e.stash(unwrapSyntax(id), refs[1][i]);
+    }, env);
+    
+    letstx $init = init,
+           $oref = oref,
+           $aref = aref,
+           $iref = iref,
+           $lref = lref,
+           $sref = sref,
+           $start = start,
+           $stop = stop,
+           $inner = s,
+           $bod = cont(env2);
+    return #{
+      $init
+      var $oref = true;
+      for (var $iref = $start, $sref = $stop, $lref; $iref < $sref; $iref++) {
+        $lref = $aref[$iref];
+        $inner
+        $oref = false;
+        break;
+      }
+      if ($oref) { $bod }
+    }
+  },
+  Guard: function(ann, _, env, cont) {
+    var names = ann.stashed.reduce(function(acc, id) {
+      var k = unwrapSyntax(id);
+      acc[k] = env.retrieve(k);
+      return acc;
+    }, {});
+
+    letstx $test = replaceIdents(ann.stx, names),
+           $bod = cont(env);
+    return #{
+      if ($test) { $bod }
     }
   }
+};
 
-  letstx $ref = env.ref.name;
-  letstx $bod ... = cont(env);
+var leafCompilers = {
+  Body: function(ann, env) {
+    var refs = join([], ann.stashed.map(function(id) {
+      return makeAssign(id, env.retrieve(unwrapSyntax(id)));
+    }));
+    return makeDelim('{}', refs.concat(ann.stx), here);
+  },
+  RestEnd: function(ann, env) {
+    var refs = join([], ann.stashed.map(function(id, i) {
+      letstx $arr = ann.refs[i],
+             $ref = env.retrieve(unwrapSyntax(id));
+      return #{
+        $arr[$arr.length] = $ref;
+      }
+    }));
 
-  if (noCheck) {
+    letstx $refs = refs;
     return #{
-      if ($ref != null) { $bod ... }
+      $refs
+      continue;
     }
-  } else {
-    letstx $toStr = TO_STR_REF.name;
-    letstx $arrStr = natives.Array.name;
-    return #{
-      if ($toStr.call($ref) === $arrStr) { $bod ... }
-    }
+  }
+};
+
+function compileNoop() {
+  var cont = arguments[arguments.length - 2];
+  var env  = arguments[arguments.length - 3];
+  return cont(env);
+}
+
+var natives = {
+  Boolean   : typeofAndObjTag('boolean', 'Boolean'),
+  Number    : typeofAndObjTag('number', 'Number'),
+  String    : typeofAndObjTag('string', 'String'),
+  Function  : typeofAndObjTag('function', 'Function'),
+  RegExp    : objTag('RegExp'),
+  Date      : objTag('Date'),
+  Math      : objTag('Math'),
+  Object    : objTag('Object'),
+
+  Array: function(ref, env) {
+    letstx $ref = ref;
+    return #{ Array.isArray
+              ? Array.isArray($ref) 
+              : Object.prototype.toString.call($ref) === '[object Array]' };
+  },
+  NaN: function(ref, env) {
+    letstx $ref = ref;
+    return #{ Number.isNaN
+              ? Number.isNaN($ref)
+              : typeof $ref === 'number' && $ref !== +$ref };
   }
 }
 
-function compileRest(patt, env, cont) {
-  var child = patt.children[0];
-  var start = env.start;
-  var stop  = env.stop;
-
-  // Invert the start position so the next pattern will be offset from the end.
-  env = env.set({ start: -stop });
-
-  // Empty rest patterns have no effect, so we don't need to do anything for
-  // them except change the start position for the next pattern.
-  if (child.type === 'wildcard') {
-    return cont(env);
+function typeofAndObjTag(type, tag) {
+  return function(ref, env) {
+    letstx $type = [makeValue(type, here)],
+           $str = [makeValue('[object ' + tag + ']', here)],
+           $ref = ref;
+    return #{ typeof $ref === $type ||
+              Object.prototype.toString.call($ref) === $str };
   }
+}
 
-  var okRef  = makeRef(makeValue(true, here)); // Whether the pattern matches for every item.
-  var iRef   = makeRef(); // The current index in the loop.
-  var lenRef = makeRef(); // The length of iteration.
-  var inRef  = makeRef(); // The current item.
-
-  // Rest refs are the arrays where values are collected. The root rest pattern
-  // won't have this initialized yet.
-  var isRootRest = !env.restRefs;
-  if (isRootRest) env.restRefs = [];
-
-  // When compiling a rest pattern, we are essentially forking the compilation
-  // process, so we need to reset the environment for the child. When the
-  // continuation is forced, we will be able to see what names were added to
-  // the environment and collect their values into an array.
-  var childEnv = env.set({ 
-    ref: inRef, 
-    names: [], 
-    restRefs: []
-  });
-
-  var loopBody = compilePattern(child, childEnv, function(env2) {
-    function reducer(acc, n) {
-      var ref = makeRef(makeDelim('[]', [], here));
-      env.restRefs.push(ref);
-
-      // Array push code: ref[ref.length] = val
-      return acc.concat(ref.name,
-        makeDelim('[]', ref.name.concat(makePunc('.', here), makeIdent('length', here)), here), 
-        makePunc('=', here), n.name || n.stx, makePunc(';', here));
-    }
-
-    var stx = env2.names.reduceRight(reducer, []);
-    if (env2.restRefs) stx = env2.restRefs.reduceRight(reducer, stx);
-    return stx.concat(#{ continue; });
-  });
-
-  var restRefs = env.restRefs.map(function(r) {
-    if (isRootRest) env = env.addName(r.name);
-    return r.stx;
-  });
-
-  // Generates the code that calculates where to stop looping.
-  var stopRef = env.ref.name.concat(makePunc('.', here), makeIdent('length', here));
-  if (stop > 0) stopRef.push(makePunc('-', here), makeValue(stop, here));
-
-  letstx $bod ... = cont(env);
-  letstx $loopBod ... = loopBody;
-  letstx $start = [makeValue(start, here)];
-  letstx $stop  = [makeDelim('()', stopRef, here)];
-  letstx $ok    = okRef.name;
-  letstx $i     = iRef.name;
-  letstx $len   = lenRef.name;
-  letstx $in    = inRef.name;
-  letstx $ref   = env.ref.name;
-
-  var loop = #{
-    for (var $i = $start, $len = $stop, $in; $i < $len; $i++) {
-      $in = $ref[$i];
-      $loopBod ...
-      $ok = false;
-      break;
-    }
-  };
-
-  // Rest patterns with identifiers never fail so we can remove the `ok` guard
-  // on the body.
-  if (child.type === 'identifier') {
-    letstx $rrefs ... = joinRefs(restRefs);
-    letstx $loop ... = loop;
-    return #{
-      $rrefs ...
-      $loop ...
-      $bod ...
-    }
-  } else {
-    letstx $rrefs ... = joinRefs([okRef].concat(restRefs));
-    letstx $loop ... = loop;
-    return #{
-      $rrefs ...
-      $loop ...
-      if ($ok) { $bod ... }
-    }
+function objTag(tag) {
+  return function(ref, env) {
+    letstx $str = [makeValue('[object ' + tag + ']', here)],
+           $ref = ref;
+    return #{ Object.prototype.toString.call($ref) === $str };
   }
 }

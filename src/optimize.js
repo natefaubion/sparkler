@@ -18,8 +18,6 @@ function optimizeSyntax(stx) {
         opt = toks;
       }
       res = res.concat(opt);
-    } else if (toks = inp.takeAPeek(ELSE, BRACES)) {
-      res = res.concat(optimizeElses(toks));
     } else if (toks = inp.takeAPeek(BRACES)) {
       res = res.concat(optimizeSyntax(toks[0].token.inner));
       break;
@@ -39,22 +37,8 @@ function optimizeIfs(stx) {
   var inner = input(optimizeSyntax(block.token.inner));
   var toks  = inner.takeAPeek(IF, PARENS, BRACES);
   if (toks && inner.length === 0) {
-    pred.token.inner = pred.token.inner.concat(makePunc('&&', here), toks[1]);
+    pred.token.inner = [makeDelim('()', pred.token.inner, pred), makePunc('&&', here), toks[1]];
     stx[2] = toks[2];
-  } else if (toks) {
-    block.token.inner = toks.concat(inner.rest());
-  } else {
-    block.token.inner = inner.rest();
-  }
-  return stx;
-}
-
-function optimizeElses(stx) {
-  var block = stx[1];
-  var inner = input(optimizeSyntax(block.token.inner));
-  var toks  = inner.takeAPeek(IF, PARENS, BRACES);
-  if (toks && inner.length === 0) {
-    return [stx[0]].concat(toks);
   } else if (toks) {
     block.token.inner = toks.concat(inner.rest());
   } else {

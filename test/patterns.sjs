@@ -50,10 +50,7 @@ describe 'Case patterns' {
       Array     => 'array',
       Object    => 'object',
       Function  => 'function',
-      Undefined => 'undefined',
-      Null      => 'null',
-      Math      => 'math',
-      Arguments => 'arguments',
+      Math      => 'math'
     }
     test 'Boolean'   { go(true) === 'boolean' }
     test 'Nan'       { go(0/0) === 'nan' }
@@ -64,10 +61,7 @@ describe 'Case patterns' {
     test 'Array'     { go([]) === 'array' }
     test 'Object'    { go({}) === 'object' }
     test 'Function'  { go(go) === 'function' }
-    test 'Undefined' { go(void 0) === 'undefined' }
-    test 'Null'      { go(null) === 'null' }
     test 'Math'      { go(Math) === 'math' }
-    test 'Arguments' { go(fn { return arguments }()) === 'arguments' }
   }
 
   // Identifiers
@@ -315,28 +309,6 @@ describe 'Case patterns' {
         ]
       ]
     }
-  }
-
-  // Backtracking
-  // ------------
-
-  it 'should only call a pattern once with backtracking' {
-    var count = 0;
-    var Backtrack = {
-      unapply: function(x) {
-        count++;
-        return [x];
-      }
-    };
-
-    function go {
-      (Backtrack(1), 1) => 1,
-      ('foo'       , 2) => 2,
-      (Backtrack(1), 3) => 3
-    }
-
-    go(1, 3);
-    test 'backtrack' { count === 1 }
   }
 
   // Match keyword

@@ -4,13 +4,11 @@ macro $sparkler__compile {
     var here = #{ here };
     var fnName = #{ $name };
 
-    //= letstx.js
     //= utils.js
+    //= data.js
+    //= optimize.js
     //= parser.js
     //= compiler.js
-    //= compiler-simple.js
-    //= compiler-backtrack.js
-    //= optimize.js
 
     return compile(parse(#{ $body ... }));
   }
@@ -36,6 +34,16 @@ let match = macro {
   case { $ctx $op:expr { $body ... } } => {
     return #{
       ($sparkler__compile $ctx anonymous { $body ... }.call(this, $op))
+    }
+  }
+  case { $ctx ($op:expr) { $body ... } } => {
+    return #{
+      ($sparkler__compile $ctx anonymous { $body ... }.call(this, $op))
+    }
+  }
+  case { $ctx ($op:expr, $rest:expr (,) ...) { $body ... } } => {
+    return #{
+      ($sparkler__compile $ctx anonymous { $body ... }.call(this, $op, $rest (,) ...))
     }
   }
   case { _ } => {
