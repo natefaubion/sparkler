@@ -143,7 +143,7 @@ function normalizeVarLen(len, ctr, m) {
       return r;
     } else {
       return r.concat(repeat(len - r.length, function(i) {
-        return Leaf(Ann(ctr(r.length - i + 1), {}));
+        return Leaf(Ann(ctr(r.length - i + 1), {}));
       }));
     }
   });
