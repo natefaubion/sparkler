@@ -78,12 +78,13 @@ DB.getResource('123', function {
 
 If no case matches, a `TypeError('No match')` is thrown.
 
-Branch Optimization
--------------------
+Optimization
+------------
 
 Sparkler doesn't just try each case one at a time until one passes. That would
-be really inefficient. Instead, it builds up a tree of patterns to try. Take
-something like this:
+be really inefficient. Instead, it analyzes your entire pattern matrix, and
+rearranges things as needed to get an optimized set of tests while still
+preserving the left-to-right, top-down semantics.
 
 ```js
 function expensiveExtraction {
@@ -92,35 +93,8 @@ function expensiveExtraction {
 }
 ```
 
-Let's say `MyExtractor` is really expensive. Since these two cases share the
-same root argument, they are grafted together. `MyExtractor` is only called
-once, even if the first case fails in its second argument.
-
-Backtracking
-------------
-
-If your cases aren't conducive to branch optimization, Sparkler will switch
-over to the backtracking compiler if it thinks it will help.
-
-```js
-function useBacktracking {
-  (MyExtractor(x), 1) => doThis(),
-  (Foo(x)        , 2) => doThat(),
-  (MyExtractor(x), 3) => doThisAndThat()
-}
-```
-
-The `MyExtractor` pattern in this example can't be grafted together because
-a different pattern separates them. With backtracking, each unique pattern for
-a given argument position is guaranteed to only ever run once.
-
-Sparkler only uses the backtracking compiler when it must, because it can be
-verbose compared to the simple compiler. If you can write your cases in a way
-that doesn't require backtracking, you'll be much happier.
-
-__Note:__ simple patterns like booleans and number literals are not cached,
-since its more efficient just to run the comparison again than bother with the
-caching machinery.
+Let's say `MyExtractor` is really expensive. Sparkler efficiently backtracks,
+so it will only get called once in this set of tests.
 
 Argument Length
 ---------------
