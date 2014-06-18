@@ -197,6 +197,7 @@ describe 'Case patterns' {
 
   function Foo() {}
 
+
   it 'should call hasInstance for bare extractors' {
     function go {
       Digits => true,
@@ -314,7 +315,7 @@ describe 'Case patterns' {
   // Match keyword
   // -------------
 
-  it 'should support the match keyword' {
+  it 'should support match expressions' {
     function go(test) {
       return match test {
         x @ Number => x.toString(),
@@ -325,7 +326,7 @@ describe 'Case patterns' {
     test 'success' { go(42) === '42' && go(true) === null }
   }
 
-  it 'should preserve the lexical `this` context with match' {
+  it 'should preserve the lexical `this` context with match expressions' {
     var foo = {
       y: 42,
       go: function(x) {
@@ -337,18 +338,160 @@ describe 'Case patterns' {
 
     test 'success' { foo.go(1) === 42 }
   }
-  
-  it 'should support the match keyword as a statement' {
+
+  it 'should support match statements' {
     function go(test) {
-      var a = 1;
+      var a;
       match test {
-        x @ Number => { a = test; }
-        * => null
-      };
+        case x @ Number: a = test;
+        default:         a = null;
+      }
       return a;
     }
 
     test 'success' { go(42) === 42 }
+  }
+
+  it 'should support early return in match statements' {
+    function go(test) {
+      match test {
+        case x @ Number: return x;
+        default:         null;
+      }
+      return 'foo';
+    }
+
+    test 'success' { go(42) === 42 && go('bar') === 'foo' }
+  }
+
+  it 'should support break/continue in match statements' {
+    function go(test) {
+      while (test < 10) {
+        match test {
+          case 1:
+            test += 1;
+            continue;
+          case 2:
+            test += 1;
+            break;
+        }
+      }
+      return test;
+    }
+
+    test 'success' { go(1) === 3 }
+  }
+
+  it 'should support the default keyword' {
+    function go1 {
+      1       => 2,
+      default => 42,
+    }
+
+    function go2(x) {
+      return match x {
+        1       => 2,
+        default => 42
+      }
+    }
+
+    function go3(x) {
+      match x {
+        case 1:  return 2;
+        default: return 42;
+      }
+    }
+
+    test 'success 1' { go1(1) === 2 && go1(2) === 42 }
+    test 'success 2' { go2(1) === 2 && go2(2) === 42 }
+    test 'success 3' { go3(1) === 2 && go3(2) === 42 }
+  }
+
+  // Backtracking
+  // ------------
+
+  function Counter(c) {
+    return {
+      count: 0,
+      unapply: function(x) {
+        this.count += 1;
+        var arr = [], i = c;
+        while (i--) arr.unshift(i + 1);
+        return arr;
+      }
+    }
+  }
+
+  it 'should backtrack in match expressions' {
+    var C2 = Counter(2);
+    var m = match null {
+      C2(C2(1, 3), *) => 1,
+      C2(C2(1, 2), *) => 2
+    }
+
+    test 'success' { C2.count === 2 && m === 2 }
+  }
+
+  it 'should backtrack in match statements' {
+    var C2 = Counter(2);
+    var m;
+
+    match null {
+      case C2(C2(1, 3), *): m = 1;
+      case C2(C2(1, 2), *): m = 2;
+    }
+
+    test 'success' { C2.count === 2 && m === 2 }
+  }
+
+  it 'should work with complex patterns in match expressions' {
+    function go(test) {
+      return match test {
+        ['black', ['red', ['red', a, x, b], y, c], z, d] => [1, a, x, b, y, c, z, d],
+        ['black', ['red', a, x, ['red', b, y, c]], z, d] => [2, a, x, b, y, c, z, d],
+        ['black', a, x, ['red', ['red', b, y, c], z, d]] => [3, a, x, b, y, c, z, d],
+        ['black', a, x, ['red', b, y, ['red', c, z, d]]] => [4, a, x, b, y, c, z, d]
+      }
+    }
+
+    test 'success 1' {
+      go(['black', ['red', ['red', 1, 2, 3], 4, 5], 6, 7]) =>= [1, 1, 2, 3, 4, 5, 6, 7]
+    }
+    test 'success 2' {
+      go(['black', ['red', 1, 2, ['red', 3, 4, 5]], 6, 7]) =>= [2, 1, 2, 3, 4, 5, 6, 7]
+    }
+    test 'success 3' {
+      go(['black', 1, 2, ['red', ['red', 3, 4, 5], 6, 7]]) =>= [3, 1, 2, 3, 4, 5, 6, 7]
+    }
+    test 'success 4' {
+      go(['black', 1, 2, ['red', 3, 4, ['red', 5, 6, 7]]]) =>= [4, 1, 2, 3, 4, 5, 6, 7]
+    }
+  }
+
+  it 'should work with complex patterns in match statements' {
+    function go(test) {
+      var r;
+      match test {
+        case ['black', ['red', ['red', a, x, b], y, c], z, d]: r = [1, a, x, b, y, c, z, d];
+        case ['black', ['red', a, x, ['red', b, y, c]], z, d]: r = [2, a, x, b, y, c, z, d];
+        case ['black', a, x, ['red', ['red', b, y, c], z, d]]: r = [3, a, x, b, y, c, z, d];
+        case ['black', a, x, ['red', b, y, ['red', c, z, d]]]: r = [4, a, x, b, y, c, z, d];
+      }
+      return r;
+    }
+
+    test 'success 1' {
+      go(['black', ['red', ['red', 1, 2, 3], 4, 5], 6, 7]) =>= [1, 1, 2, 3, 4, 5, 6, 7]
+    }
+    test 'success 2' {
+      go(['black', ['red', 1, 2, ['red', 3, 4, 5]], 6, 7]) =>= [2, 1, 2, 3, 4, 5, 6, 7]
+    }
+    test 'success 3' {
+      go(['black', 1, 2, ['red', ['red', 3, 4, 5], 6, 7]]) =>= [3, 1, 2, 3, 4, 5, 6, 7]
+    }
+    test 'success 4' {
+      go(['black', 1, 2, ['red', 3, 4, ['red', 5, 6, 7]]]) =>= [4, 1, 2, 3, 4, 5, 6, 7]
+    }
   }
 
   // Regressions

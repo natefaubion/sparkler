@@ -50,6 +50,7 @@ function data(t, fs, proto) {
 }
 
 var Fun        = data('Fun',        ['length']);
+var Match      = data('Match',      ['length']);
 var Args       = data('Args',       []);
 var Arr        = data('Arr',        []);
 var Unapply    = data('Unapply',    []);
@@ -74,16 +75,12 @@ var RestEnd    = data('RestEnd',    []);
 var Case       = data('Case',       []);
 var Guard      = data('Guard',      [], { equals: constant(false) });
 var Body       = data('Body',       [], { equals: constant(false) });
+var Backtrack  = data('Backtrack',  []);
+var NoMatch    = data('NoMatch',    []);
 var Branch     = data('Branch',     ['node', 'branches']);
 var Leaf       = data('Leaf',       ['node']);
 var Ann        = data('Ann',        ['value', 'ann'], { equals: equalsFst });
 var Group      = data('Group',      ['node', 'matrix', 'stack']);
-var Frame      = data('Frame',      ['matrix', 'level'], { concat: frameConcat });
-
-function frameConcat(b) {
-  assert(this.level === b.level, 'Frame levels must match');
-  return Frame(this.matrix.concat(b.matrix), this.level);
-}
 
 function equalsTag(that) {
   return that && that.tag === this.tag;

@@ -3,50 +3,51 @@ function compile(ast) {
 }
 
 function astToTree(ast) {
-  var level = 2;
-  var cases = ast.branches.map(function(b) { return [b.branches[0]] });
+  var cases = ast.branches.map(function(b) { return [annotateLevels(b.branches[0], 0)] });
   var frame = ast.branches.map(function(b) { return [b.branches[1]] });
-  var gr = groupRows(cases, [Frame(frame, 0)], level);
-  return Branch(ast.node, [transformCase(gr[0].node, gr[0].matrix, gr[0].stack, level)]);
+  var gr = groupRows(cases, [frame]);
+  return Branch(ast.node, [transformCase(gr[0].node, gr[0].matrix, gr[0].stack)]);
 }
 
-function transformCase(c, m, stack, level) {
-  c.ann.level = level;
+function annotateLevels(ast, l) {
+  ast.node.ann.level = l;
+  if (ast.branches) {
+    ast.branches.forEach(function(b) {
+      annotateLevels(b, l + 1);
+    });
+  }
+  return ast;
+}
 
+function transformCase(c, m, stack) {
   if (!stack.length) {
     return m.length
       ? Branch(c, m.reduce(concat))
       : Leaf(c);
   }
 
-  var nl = level + 1;
   var gr;
 
   if (!m.length) {
-    nl = stack[0].level;
-    gr = groupRows(stack[0].matrix, stack.slice(1), stack[0].level);
+    gr = groupRows(stack[0], stack.slice(1));
   } else if (isMatrixType(c.value)) {
-    gr = groupRows(scoreMatrix(normalizeMatrix(c, m)), stack, level);
+    gr = groupRows(scoreMatrix(normalizeMatrix(c, m)), stack);
   } else {
-    gr = groupRows(m, stack, level);
+    gr = groupRows(m, stack);
   }
 
-  var head = transformCase(gr[0].node, gr[0].matrix, gr[0].stack, nl);
-  var rest = gr[1].length && transformCase(c, gr[1], gr[2], level).branches || [];
+  var head = transformCase(gr[0].node, gr[0].matrix, gr[0].stack);
+  var rest = gr[1].length && transformCase(c, gr[1], gr[2]).branches || [];
+  var cons = [head].concat(rest);
 
-  return Branch(c, [head].concat(rest).reduceRight(function(acc, c) {
-    if (acc.length && acc[0].node.equals(c.node)) {
-      acc[0] = Branch(mergeNodes(c.node, acc[0].node), c.branches.concat(acc[0].branches));
-    } else {
-      acc.unshift(c);
-    }
-    return acc;
-  }, []));
+  return Branch(c, matchStmt
+                   ? mergeBranchesWithBacktrack(cons)
+                   : mergeBranches(cons));
 }
 
-function groupRows(m, stack, level) {
+function groupRows(m, stack) {
   function rowHeadStack(r, s) {
-    return r.length === 1 ? s : [Frame([r.slice(1)], level)].concat(s);
+    return r.length === 1 ? s : [[r.slice(1)]].concat(s);
   }
 
   var head = m[0];
@@ -59,16 +60,43 @@ function groupRows(m, stack, level) {
     var g = acc[0];
     var c = r[0];
     if (!acc[1].length && canGroupCases(head[0], c)) {
-      var n = mergeNodes(g.node, c.node);
-      var m = c.branches ? g.matrix.concat([c.branches]) : g.matrix;
-      var s = stackZip(g.stack, rowHeadStack(r, stackRow(stack, i + 1)));
-      acc[0] = Group(n, m, s);
+      acc[0] = Group(mergeNodes(g.node, c.node),
+                     c.branches ? g.matrix.concat([c.branches]) : g.matrix,
+                     stackZip(g.stack, rowHeadStack(r, stackRow(stack, i + 1))));
     } else {
       acc[1].push(r);
       acc[2] = stackZip(acc[2], stackRow(stack, i + 1));
     }
     return acc;
   }, [init, [], []]);
+}
+
+function mergeBranches(bs) {
+  return bs.reduceRight(function(acc, c) {
+    if (acc.length && acc[0].node.equals(c.node)) {
+      acc[0] = Branch(mergeNodes(c.node, acc[0].node),
+                      c.branches.concat(acc[0].branches));
+    } else {
+      acc.unshift(c);
+    }
+    return acc;
+  }, []);
+}
+
+function mergeBranchesWithBacktrack(bs) {
+  return bs.reduceRight(function(acc, c, i) {
+    var head = acc[0];
+    if (head && c.node.equals(head.node)) {
+      acc[0] = Branch(mergeNodes(c.node, head.node),
+                      c.branches.concat(Branch(Ann(Backtrack(), {}), head.branches)));
+    } else if (head) {
+      acc[0] = Branch(c.node,
+                      c.branches.concat(Branch(Ann(Backtrack(), {}), head.branches)));
+    } else {
+      acc.unshift(c);
+    }
+    return acc;
+  }, []);
 }
 
 function mergeNodes(c1, c2) {
@@ -204,7 +232,7 @@ var score = {
 
 function stackRow(stack, i) {
   return stack.map(function(f) {
-    return Frame([f.matrix[i]], f.level);
+    return [f[i]];
   });
 }
 
@@ -224,7 +252,7 @@ function compilePattern(t, env, stack) {
     var r = stack[stack.length - 1];
     var cont = function(e, r2) {
       var s = stack.concat([r2 || r]);
-      return bs.reduce(function(stx, b) {
+      return bs.reduce(function(stx, b, i) {
         var l = b.node.ann.level;
         return stx.concat(compilePattern(b, e, s.slice(0, l)));
       }, []);
@@ -236,7 +264,7 @@ function compilePattern(t, env, stack) {
     }
     return c.apply(null, n.value.unapply().concat(n.ann, [r], env, cont, [bs]));
   } else {
-    var c = leafCompilers[n.value.tag] || assert(false, 'Unexpected leaf: ' + n.value.tag);  
+    var c = leafCompilers[n.value.tag] || assert(false, 'Unexpected leaf: ' + n.value.tag);
     return c.apply(null, n.value.unapply().concat(n.ann, env));
   }
 }
@@ -249,14 +277,45 @@ var branchCompilers = {
       })
     });
 
-    var body = cont(env2);
-    var err = #{ throw new TypeError('No match') };
-
     letstx $name = unwrapSyntax(fnName) === 'anonymous' ? [] : fnName,
            $args = join(makePunc(',', here), env2.argIdents),
-           $code = optimizeSyntax(body.concat(err));
-    return #{ 
-      function $name ($args) { $code }
+           $code = optimizeSyntax(cont(env2));
+
+    if (matchArgs.length) {
+      letstx $params = join(makePunc(',', here), matchArgs);
+      return #{
+        function $name ($args) { $code }.call(this, $params)
+      }
+    } else {
+      return #{
+        function $name ($args) { $code }
+      }
+    }
+  },
+  Match: function(len, ann, _, env, cont) {
+    var bref = makeRef();
+    var args = matchArgs.reduce(function(acc, a) {
+      if (a.length === 1 && a[0].token.type === T.Identifier) {
+        acc[0].push(a);
+      } else {
+        var ref = makeRef();
+        acc[1] = makeAssign(null, ref[0], a).concat(acc[1]);
+        acc[0].push(ref);
+      }
+      return acc;
+    }, [[], []]);
+
+    var env2 = env.set({ argIdents: args[0], backtrackRef: bref });
+    var body = cont(env2);
+
+    letstx $top = args[1],
+           $ref = bref,
+           $bod = optimizeSyntax(body);
+
+    return #{
+      var $ref = 1;
+      $top
+      $bod
     }
   },
   Args: compileNoop,
@@ -281,7 +340,7 @@ var branchCompilers = {
     letstx $ref = ref,
            $lit = ann.stx,
            $bod = cont(env);
-    return #{ 
+    return #{
       if ($ref === $lit) { $bod }
     }
   },
@@ -298,7 +357,7 @@ var branchCompilers = {
              $cls = ann.extractor,
              $bod = cont(env);
       return #{
-        if ($cls.hasInstance 
+        if ($cls.hasInstance
             ? $cls.hasInstance($ref)
             : $ref instanceof $cls) { $bod }
       }
@@ -424,7 +483,7 @@ var branchCompilers = {
   KeyNoop: compileNoop,
   Rest: function(pattern, names, ann, ref, env, cont) {
     var refs = ann.stashed.reduce(function(acc, id) {
-      var k = unwrapSyntax(id);
+      var k = unwrapSyntax(id.ident);
       if (!acc[2].hasOwnProperty(k)) {
         acc[0].push(id);
         acc[1].push(makeRef());
@@ -457,15 +516,14 @@ var branchCompilers = {
     };
 
     var end = Leaf(Ann(RestEnd(), { stashed: refs[0], refs: refs[1] }));
-    var g = groupRows([[pattern]], [Frame([[end]], 0)], 1)[0];
+    var g = groupRows([[annotateLevels(pattern, 1)]], [[[end]]], 1)[0];
     var t = transformCase(g.node, g.matrix, g.stack, 1);
-    // var t = transformCases([pattern], [Frame([[end]], 0)], 1)[0];
     var s = compilePattern(t, environment({ refs: {} }), [void 0, lref]);
 
     var env2 = ann.stashed.reduce(function(e, id, i) {
-      return e.stash(unwrapSyntax(id), refs[1][i]);
+      return e.stash(unwrapSyntax(id.ident), refs[1][i]);
     }, env);
-    
+
     letstx $init = init,
            $oref = oref,
            $aref = aref,
@@ -478,11 +536,11 @@ var branchCompilers = {
            $bod = cont(env2);
     return #{
       $init
-      var $oref = true;
+      var $oref = 1;
       for (var $iref = $start, $sref = $stop, $lref; $iref < $sref; $iref++) {
         $lref = $aref[$iref];
         $inner
-        $oref = false;
+        $oref--;
         break;
       }
       if ($oref) { $bod }
@@ -490,7 +548,7 @@ var branchCompilers = {
   },
   Guard: function(ann, _, env, cont) {
     var names = ann.stashed.reduce(function(acc, id) {
-      var k = unwrapSyntax(id);
+      var k = unwrapSyntax(id.ident);
       acc[k] = env.retrieve(k);
       return acc;
     }, {});
@@ -500,20 +558,40 @@ var branchCompilers = {
     return #{
       if ($test) { $bod }
     }
+  },
+  Backtrack: function(ann, _, env, cont) {
+    letstx $bod = cont(env),
+           $ref = env.backtrackRef;
+    return #{
+      if ($ref) { $bod }
+    }
   }
 };
 
 var leafCompilers = {
   Body: function(ann, env) {
     var refs = join([], ann.stashed.map(function(id) {
-      return makeAssign(id, env.retrieve(unwrapSyntax(id)));
+      return makeAssign(id.keyword, id.ident, env.retrieve(unwrapSyntax(id.ident)));
     }));
-    return makeDelim('{}', refs.concat(ann.stx), here);
+
+    letstx $bod = refs.concat(ann.stx),
+           $user = [makeIdent(USERCODE.value, here)];
+
+    if (matchStmt && !ann.last) {
+      letstx $ref = env.backtrackRef;
+      return #{
+        if ($ref--) { $user { $bod } }
+      }
+    } else {
+      return #{
+        $user { $bod }
+      }
+    }
   },
   RestEnd: function(ann, env) {
     var refs = join([], ann.stashed.map(function(id, i) {
       letstx $arr = ann.refs[i],
-             $ref = env.retrieve(unwrapSyntax(id));
+             $ref = env.retrieve(unwrapSyntax(id.ident));
       return #{
         $arr[$arr.length] = $ref;
       }
@@ -523,6 +601,11 @@ var leafCompilers = {
     return #{
       $refs
       continue;
+    }
+  },
+  NoMatch: function(ann, env) {
+    return #{
+      throw new TypeError('No match');
     }
   }
 };
@@ -546,7 +629,7 @@ var natives = {
   Array: function(ref, env) {
     letstx $ref = ref;
     return #{ Array.isArray
-              ? Array.isArray($ref) 
+              ? Array.isArray($ref)
               : Object.prototype.toString.call($ref) === '[object Array]' };
   },
   NaN: function(ref, env) {

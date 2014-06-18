@@ -1,8 +1,12 @@
 macro $sparkler__compile {
-  case { $$mac $ctx $name { $body ... } } => {
+  case { $$mac $ctx $name ($args ...) { $body ... } } => {
     var ctx = #{ $ctx };
     var here = #{ here };
     var fnName = #{ $name };
+    var matchStmt = false;
+    var matchArgs = #{ $args ... }.map(function(a) {
+      return a.expose().token.inner[0].expose().token.inner;
+    });
 
     //= utils.js
     //= data.js
@@ -17,12 +21,12 @@ macro $sparkler__compile {
 let function = macro {
   case { $ctx $name:ident { $body ... } } => {
     return #{
-      $sparkler__compile $ctx $name { $body ... }
+      $sparkler__compile $ctx $name () { $body ... }
     };
   }
   case { $ctx { $body ... } } => {
     return #{
-      $sparkler__compile $ctx anonymous { $body ... }
+      $sparkler__compile $ctx anonymous () { $body ... }
     }
   }
   case { _ } => {
@@ -33,17 +37,17 @@ let function = macro {
 let match = macro {
   case { $ctx $op:expr { $body ... } } => {
     return #{
-      ($sparkler__compile $ctx anonymous { $body ... }.call(this, $op))
+      $sparkler__compile $ctx anonymous (($op)) { $body ... }
     }
   }
   case { $ctx ($op:expr) { $body ... } } => {
     return #{
-      ($sparkler__compile $ctx anonymous { $body ... }.call(this, $op))
+      $sparkler__compile $ctx anonymous (($op)) { $body ... }
     }
   }
   case { $ctx ($op:expr, $rest:expr (,) ...) { $body ... } } => {
     return #{
-      ($sparkler__compile $ctx anonymous { $body ... }.call(this, $op, $rest (,) ...))
+      $sparkler__compile $ctx anonymous (($op) $(($rest)) ...) { $body ... }
     }
   }
   case { _ } => {

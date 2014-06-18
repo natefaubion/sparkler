@@ -17,6 +17,10 @@ var ELSE       = { type: T.Keyword,    value: 'else' };
 var FOR        = { type: T.Keyword,    value: 'for' };
 var RETURN     = { type: T.Keyword,    value: 'return' };
 var CONTINUE   = { type: T.Keyword,    value: 'continue' };
+var VAR        = { type: T.Keyword,    value: 'var' };
+var LET        = { type: T.Keyword,    value: 'let' };
+var CONST      = { type: T.Keyword,    value: 'const' };
+var DEFAULT    = { type: T.Keyword,    value: 'default' };
 var BRACKETS   = { type: T.Delimiter,  value: '[]' };
 var PARENS     = { type: T.Delimiter,  value: '()' };
 var BRACES     = { type: T.Delimiter,  value: '{}' };
@@ -26,12 +30,17 @@ var NULL       = { type: T.NullLiteral };
 var STRING     = { type: T.StringLiteral };
 var NUMBER     = { type: T.NumericLiteral };
 var PUNC       = { type: T.Punctuator };
+var USERCODE   = { type: T.Identifier, value: '$sparkler__user__' + __fresh() };
 
 function parse(stx) {
   var inp = input(stx);
   var cases = [];
   var patts = [];
   var i = 0;
+
+  if (inp.peek(CASE) || inp.peek(DEFAULT)) {
+    matchStmt = true;
+  }
 
   while (inp.length) {
     var list = scanArgumentList(inp);
@@ -49,10 +58,6 @@ function parse(stx) {
       }
     }
 
-    body.forEach(function(b) {
-      b.userCode = true;
-    });
-
     cases.push(args.unapply(function(v, bs) {
       var b = Leaf(Ann(Body(), { stx: body, stashed: inp2.state.idents }));
       var g = guard.length
@@ -66,24 +71,50 @@ function parse(stx) {
     return c.branches[0].node.ann.length;
   }));
 
-  cases.forEach(function(c) {
+  var exh = cases.reduce(function(acc, c, i) {
     c.branches[0].node.ann.length = len;
-  });
+    return !acc && !c.branches[1].node.value.isGuard
+        && c.branches[0].branches.every(function(a) {
+            return a.branches[0].node.value.isWild;
+           });
+  }, false);
 
-  return Branch(Ann(Fun(len), {}), cases);
+  if (exh) {
+    cases[cases.length - 1].branches[1].node.ann.last = true;
+  } else {
+    cases.push(Branch(Ann(Case(), {}),
+                      [Branch(Ann(Args(), { length: len }),
+                              [Branch(Ann(Arg(0), {}),
+                                      [Leaf(Ann(Wild(), {}))])]),
+                       Leaf(Ann(NoMatch(), {}))]));
+  }
+
+  return matchStmt
+    ? Branch(Ann(Match(len), { exhaustive: exh }), cases)
+    : Branch(Ann(Fun(len), { exhaustive: exh }), cases);
 }
 
 function scanArgumentList(inp) {
-  var res = inp.takeAPeek(PARENS);
+  var res;
+  if (matchStmt) {
+    res = inp.takeAPeek(CASE);
+    if (!res) {
+      res = inp.takeAPeek(DEFAULT);
+      if (res) return res;
+      syntaxError(res, null, 'maybe you meant case');
+    }
+  }
+
+  res = inp.takeAPeek(PARENS);
   if (res) {
-    if (inp.peek(IF) || inp.peek(ARROW)) return res[0].expose().token.inner;
+    if (inp.peek(IF) || (matchStmt ? inp.peek(COLON) : inp.peek(ARROW))) return res[0].expose().token.inner;
     if (inp.peek(EQ)) syntaxError(inp.take(), null, 'maybe you meant =>');
     throw syntaxError(inp.take());
   }
 
   res = [];
   while (inp.length) {
-    if (inp.peek(IF) || inp.peek(ARROW)) return res;
+    if (inp.peek(IF) || (matchStmt ? inp.peek(COLON) : inp.peek(ARROW))) return res;
     if (inp.peek(EQ)) syntaxError(inp.take(), null, 'maybe you meant =>');
     if (inp.peek(COMMA)) syntaxError(inp.take(), null, 'multiple parameters require parens');
     res.push(inp.take()[0]);
@@ -98,7 +129,7 @@ function scanGuard(inp) {
 
   var res = [];
   while (inp.length) {
-    if (inp.peek(ARROW)) {
+    if (matchStmt ? inp.peek(COLON) : inp.peek(ARROW)) {
       if (!res.length) syntaxError(tok, 'Guard required');
       return res;
     }
@@ -112,18 +143,22 @@ function scanCaseBody(inp) {
   inp.take(1);
   var res = inp.takeAPeek(BRACES);
   if (res) {
-    inp.takeAPeek(COMMA);
-    return forceReturn(res[0].expose().token.inner);
+    if (matchStmt) {
+      return res[0].expose().token.inner;
+    } else {
+      inp.takeAPeek(COMMA);
+      return forceReturn(res[0].expose().token.inner);
+    }
   }
 
   // TODO: rewrite with getExpr as this can lead to hard-to-decipher errors.
   res = [];
   while (inp.length) {
-    if (inp.takeAPeek(COMMA)) break;
+    if (matchStmt ? inp.peek(CASE) || inp.peek(DEFAULT) : inp.takeAPeek(COMMA)) break;
     res.push(inp.take(1)[0]);
   }
 
-  return prependReturn(res);
+  return matchStmt ? res : prependReturn(res);
 }
 
 function parseArgumentList(inp) {
@@ -132,6 +167,15 @@ function parseArgumentList(inp) {
                   [Branch(Ann(Arg(0), {}),
                           [Leaf(Ann(Unit(), {}))])]);
   }
+
+  var res = inp.takeAPeek(DEFAULT);
+  if (res) {
+    if (inp.length) syntaxError(inp.take());
+    return Branch(Ann(Args(), { length: 0 }),
+                  [Branch(Ann(Arg(0), {}),
+                          [Leaf(Ann(Wild(), {}))])]);
+  }
+
   var len = 0;
   var args = parseRestPatterns(inp).map(function(p, i, ps) {
     if (p.node.value.isRest) {
@@ -174,7 +218,7 @@ function parseRest(inp) {
     var len = inp.state.idents.length;
     var patt = parsePattern(inp);
     var idents = inp.state.idents.slice(len);
-    var names = idents.map(unwrapSyntax);
+    var names = idents.map(function(id) { return unwrapSyntax(id.ident) });
     return Leaf(Ann(Rest(patt || Leaf(Ann(Wild(), {})), names),
                     { stx: res, stashed: inp.state.idents.slice(len) }));
   }
@@ -314,7 +358,7 @@ function parseObjectPattern(inp) {
       syntaxError(inp.take(), null, 'not a pattern');
     }
     if (matchesToken(IDENT, tok)) {
-      inp.state.idents.push(tok[0]);
+      inp.state.idents.push({ ident: tok[0] });
       return Branch(Ann(KeyIn(name), ann),
                     [Branch(Ann(KeyVal(name), ann),
                             [Leaf(Ann(Wild(), { idents: [tok[0]] }))])]);
@@ -324,24 +368,34 @@ function parseObjectPattern(inp) {
 }
 
 function parseBinder(inp) {
+  var kw = inp.takeAPeek(VAR) || inp.takeAPeek(LET) || inp.takeAPeek(CONST);
   var res = inp.takeAPeek(IDENT, AT);
   if (res) {
     var patt = parsePattern(inp);
     if (patt) {
-      inp.state.idents.push(res[0]);
+      inp.state.idents.push({
+        ident: [res[0]],
+        keyword: kw,
+      });
       patt.node.ann.idents = [res[0]];
       return patt;
     }
     syntaxError(inp.take(), null, 'not a pattern');
   }
+  if (kw) inp.back();
 }
 
 function parseIdentifier(inp) {
-  var res = inp.takeAPeek({ type: T.Identifier });
+  var kw = inp.takeAPeek(VAR) || inp.takeAPeek(LET) || inp.takeAPeek(CONST);
+  var res = inp.takeAPeek(IDENT);
   if (res) {
-    inp.state.idents.push(res[0]);
-    return Leaf(Ann(Wild(), { idents: [res[0]] }));
+    inp.state.idents.push({
+      ident: res,
+      keyword: kw
+    });
+    return Leaf(Ann(Wild(), { idents: res }));
   }
+  if (kw) inp.back();
 }
 
 function commaSeparated(parser, inp, cb) {

@@ -191,9 +191,10 @@ function makeRef(ctx) {
   return [makeIdent('r' + (refId++), ctx)];
 }
 
-function makeAssign(ident, rhs, ctx) {
+function makeAssign(kw, ident, rhs, ctx) {
   if (!ctx) ctx = here;
-  return [makeKeyword('var', ctx), ident].concat(
+  return (kw || [makeKeyword('var', ctx)]).concat(
+    ident,
     rhs ? [makePunc('=', ctx)].concat(rhs) : [],
     makePunc(';', ctx)
   );
@@ -239,10 +240,11 @@ function cloneSyntax(stx) {
 
 // function stripAnn(t) {
 //   if (t && t.ann) {
-//     if (t.ann.stx) t.ann.stx = stxToString(t.ann.stx);
-//     if (t.ann.extractor) t.ann.extractor = stxToString(t.ann.extractor);
-//     if (t.ann.idents) t.ann.idents = t.ann.idents.map(stxToString);
-//     if (t.ann.stashes) t.ann.stashed = t.ann.stashed.map(stxToString);
+//     t.args[1] = {};
+//     // if (t.ann.stx) t.ann.stx = stxToString(t.ann.stx);
+//     // if (t.ann.extractor) t.ann.extractor = stxToString(t.ann.extractor);
+//     // if (t.ann.idents) t.ann.idents = [];//t.ann.idents.map(stxToString);
+//     // if (t.ann.stashed) t.ann.stashed = [];//t.ann.stashed.map(stxToString);
 //   }
 //   if (t && t.node) {
 //     stripAnn(t.node);

@@ -6,8 +6,9 @@ function optimizeSyntax(stx) {
   var res = [];
   var toks, opt;
   while (inp.length) {
-    if (inp.peek()[0].userCode) {
-      res.push(inp.take()[0]);
+    if (inp.peek(USERCODE)) {
+      res.push.apply(res, inp.take(2)[1].token.inner);
+      break;
     } else if (toks = inp.takeAPeek({ type: T.Keyword }, PARENS, BRACES)) {
       if (matchesToken(IF, toks[0])) {
         opt = optimizeIfs(toks);
