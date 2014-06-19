@@ -1,3 +1,9 @@
+## 0.3.1 (2014-6-18)
+
+* `match` statement form that supports early return, break, and continue.
+* Pattern bindings may be prefixed with `var`, `let`, or `const`.
+* Bugfixes
+
 ## 0.3.0 (2014-6-15)
 
 * Compiler completely rewritten with way better case optimizer

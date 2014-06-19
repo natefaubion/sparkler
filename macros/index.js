@@ -210,23 +210,6 @@ macro $sparkler__compile {
       s.token = extend({}, s.token);
       return s;
     }
-    function stxToString(stx) {
-      return stx.map(unwrapSyntax).join(' ');
-    }
-    function stripAnn(t) {
-      if (t && t.ann) {
-        t.args[1] = {};
-      }
-      if (t && t.node) {
-        stripAnn(t.node);
-      }
-      if (t && t.branches) {
-        t.branches.map(stripAnn);
-      }
-      return t;
-    }
-    var _inspect = require('util').inspect;
-    var inspect = function(x, y) { return _inspect(x, null, y || 1000) };
     function Data(t, args) {
       this.tag  = t;
       this.args = args;
@@ -988,7 +971,7 @@ macro $sparkler__compile {
         }
         return c.apply(null, n.value.unapply().concat(n.ann, [r], env, cont, [bs]));
       } else {
-        var c = leafCompilers[n.value.tag] || assert(false, 'Unexpected leaf: ' + n.value.tag);  
+        var c = leafCompilers[n.value.tag] || assert(false, 'Unexpected leaf: ' + n.value.tag);
         return c.apply(null, n.value.unapply().concat(n.ann, env));
       }
     }
@@ -1008,7 +991,7 @@ macro $sparkler__compile {
             function $name ($args) { $code }.call(this, $params)
           }
         } else {
-          return #{ 
+          return #{
             function $name ($args) { $code }
           }
         }
@@ -1058,7 +1041,7 @@ macro $sparkler__compile {
         letstx $ref = ref,
                $lit = ann.stx,
                $bod = cont(env);
-        return #{ 
+        return #{
           if ($ref === $lit) { $bod }
         }
       },
@@ -1075,7 +1058,7 @@ macro $sparkler__compile {
                  $cls = ann.extractor,
                  $bod = cont(env);
           return #{
-            if ($cls.hasInstance 
+            if ($cls.hasInstance
                 ? $cls.hasInstance($ref)
                 : $ref instanceof $cls) { $bod }
           }
@@ -1331,7 +1314,7 @@ macro $sparkler__compile {
       Array: function(ref, env) {
         letstx $ref = ref;
         return #{ Array.isArray
-                  ? Array.isArray($ref) 
+                  ? Array.isArray($ref)
                   : Object.prototype.toString.call($ref) === '[object Array]' };
       },
       NaN: function(ref, env) {
