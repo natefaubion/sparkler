@@ -1,3 +1,7 @@
+## 0.3.2 (2014-6-18)
+
+* Fixed bug with backtracking in match statements
+
 ## 0.3.1 (2014-6-18)
 
 * `match` statement form that supports early return, break, and continue.
