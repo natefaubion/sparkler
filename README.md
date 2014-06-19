@@ -145,24 +145,86 @@ Foo.prototype = {
 }
 ```
 
-If you want a catch-all, you should use a wildcard (`*`) instead.
+If you want a catch-all, you should use a wildcard (`*`) or `default` instead.
 
 Match Keyword
 -------------
 
-Sparkler exports a `match` macro for doing easy matching on an expression.
+Sparkler exports a `match` macro for doing easy matching in any position.
+
+### Match Expressions
+
+Match expressions look like `function` matching, except you provide the
+argument(s) upfront.
 
 ```js
 var num = 12;
 var isNumber = match num {
   Number => true,
-  * => false
+  *      => false
 };
 ```
 
 This works by desugaring `match` into a self-invoking function with `num` as
-the argument. Consequently, `match` does not currently support `break`,
-`continue`, and early `return`.
+the argument. Consequently, `match` expressions do not support `break`,
+`continue`, and early `return`. Using a `match` expression in statement
+position will result in a parse error.
+
+### Match Statements
+
+Match statements use a slightly different syntax. They look like a suped up
+`switch`.
+
+```js
+var a = Foo(Foo(Foo(42)));
+while (1) {
+  match a {
+    case Foo(inner):
+      a = inner;
+    default:
+      break;
+  }
+}
+```
+
+Unlike `switch`es, `case`s in a `match` statement do not fall through. Early
+`return`, `break`, and `switch` are all supported. Using a `match` statement in
+expression position will result in a parse error.
+
+### Multiple Matches
+
+You can match on multiple expressions at once in both `match` expressions and
+statements.
+
+```js
+var allNums = match (num1, num2, num3) {
+  (Number, Number, Number) => true,
+  *                        => false
+};
+
+match (num1, num2, num3) {
+  case (Number, Number, Number):
+    allNums = true;
+  default:
+    allNums = false;
+}
+```
+
+### Pattern Bindings and Hoisting
+
+All bindings in patterns are declared as `var`s by default, as it is the most
+widely supported declaration form. Consequently, they will hoist outside of
+`match` statements. You may specify your declaration form by prefixing pattern
+bindings with one of `var`, `let`, or `const`.
+
+```js
+match x {
+  case Foo(a):       ... // will hoist
+  case Foo(var a):   ... // will hoist
+  case Foo(let a):   ... // will not hoist
+  case Foo(const a): ... // will not hoist, immutable
+}
+```
 
 Custom Extractors
 -----------------
