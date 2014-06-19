@@ -91,7 +91,8 @@ function mergeBranchesWithBacktrack(bs) {
                       c.branches.concat(Branch(Ann(Backtrack(), {}), head.branches)));
     } else if (head) {
       acc[0] = Branch(c.node,
-                      c.branches.concat(Branch(Ann(Backtrack(), {}), head.branches)));
+                      c.branches.concat(Branch(Ann(Backtrack(), {}),
+                                               [Branch(head.node, head.branches)])));
     } else {
       acc.unshift(c);
     }

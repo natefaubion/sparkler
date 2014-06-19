@@ -506,4 +506,14 @@ describe 'Case patterns' {
     }
     test 'success' { go(false, true, false) === 2 }
   }
+
+  it 'should concat backtrack nodes correctly' {
+    function go(x, y) {
+      match (x, y) {
+        case (Foo, *): return 1;
+        case (*, Foo): return 2;
+      }
+    }
+    test 'success' { go(new Foo(), 1) === 1 && go(1, new Foo()) === 2 }
+  }
 }
