@@ -35,9 +35,9 @@ let function = macro {
 }
 
 let match = macro {
-  case { $ctx $op:expr { $body ... } } => {
+  case { $ctx ($op:expr, $rest:expr (,) ...) { $body ... } } => {
     return #{
-      $sparkler__compile $ctx anonymous (($op)) { $body ... }
+      $sparkler__compile $ctx anonymous (($op) $(($rest)) ...) { $body ... }
     }
   }
   case { $ctx ($op:expr) { $body ... } } => {
@@ -45,9 +45,9 @@ let match = macro {
       $sparkler__compile $ctx anonymous (($op)) { $body ... }
     }
   }
-  case { $ctx ($op:expr, $rest:expr (,) ...) { $body ... } } => {
+  case { $ctx $op:expr { $body ... } } => {
     return #{
-      $sparkler__compile $ctx anonymous (($op) $(($rest)) ...) { $body ... }
+      $sparkler__compile $ctx anonymous (($op)) { $body ... }
     }
   }
   case { _ } => {

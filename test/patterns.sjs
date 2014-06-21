@@ -516,4 +516,13 @@ describe 'Case patterns' {
     }
     test 'success' { go(new Foo(), 1) === 1 && go(1, new Foo()) === 2 }
   }
+
+  it 'should correctly clone syntax in guards' {
+    function id(x) { return x }
+    function go {
+      x if x === id(x) => true,
+      *                => false
+    }
+    test 'success' { go(1) === true }
+  }
 }

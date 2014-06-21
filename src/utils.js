@@ -205,7 +205,7 @@ function replaceIdents(guard, names) {
     var stx = [];
     for (var i = 0, s; s = arr[i]; i++) {
       if (s.token.type === T.Delimiter) {
-        var clone = cloneSyntax(s);
+        var clone = cloneSyntax(s.expose());
         s.token.inner = traverse(s.token.inner);
         stx.push(s);
       } else if (s.token.type === T.Identifier && 
@@ -223,8 +223,7 @@ function replaceIdents(guard, names) {
 // HACK! Sweet.js needs to expose syntax cloning to macros
 function cloneSyntax(stx) {
   function F(){}
-  F.prototype = stx.prototype;
-  F.prototype.constructor = stx.prototype.constructor;
+  F.prototype = stx.__proto__;
   var s = new F();
   extend(s, stx);
   s.token = extend({}, s.token);
