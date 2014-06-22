@@ -51,14 +51,14 @@ function parse(stx) {
     var args = parseArgumentList(inp2);
 
     if (!guard.length) {
-      if (patts.some(function(p) { return p.equals(args) })) {
+      if (patts.some(p -> p.equals(args))) {
         syntaxError(first, 'Duplicate case');
       } else {
         patts.push(args);
       }
     }
 
-    cases.push(args.unapply(function(v, bs) {
+    cases.push(args.unapply((v, bs) -> {
       var b = Leaf(Ann(Body(), { stx: body, stashed: inp2.state.idents }));
       var g = guard.length
         ? Branch(Ann(Guard(), { stx: guard, stashed: inp2.state.idents }), [b])
@@ -67,16 +67,11 @@ function parse(stx) {
     }));
   }
 
-  var len = Math.max.apply(null, cases.map(function(c) {
-    return c.branches[0].node.ann.length;
-  }));
-
-  var exh = cases.reduce(function(acc, c, i) {
+  var len = Math.max.apply(null, cases.map(c -> c.branches[0].node.ann.length));
+  var exh = cases.reduce((acc, c, i) -> {
     c.branches[0].node.ann.length = len;
     return !acc && !c.branches[1].node.value.isGuard
-        && c.branches[0].branches.every(function(a) {
-            return a.branches[0].node.value.isWild;
-           });
+        && c.branches[0].branches.every(a -> a.branches[0].node.value.isWild);
   }, false);
 
   if (exh) {
@@ -177,7 +172,7 @@ function parseArgumentList(inp) {
   }
 
   var len = 0;
-  var args = parseRestPatterns(inp).map(function(p, i, ps) {
+  var args = parseRestPatterns(inp).map((p, i, ps) -> {
     if (p.node.value.isRest) {
       if (i === ps.length - 1) {
         p.node.ann.argRest = true;
@@ -218,7 +213,7 @@ function parseRest(inp) {
     var len = inp.state.idents.length;
     var patt = parsePattern(inp);
     var idents = inp.state.idents.slice(len);
-    var names = idents.map(function(id) { return unwrapSyntax(id.ident) });
+    var names = idents.map(id -> unwrapSyntax(id.ident));
     return Leaf(Ann(Rest(patt || Leaf(Ann(Wild(), {})), names),
                     { stx: res, stashed: inp.state.idents.slice(len) }));
   }
@@ -283,7 +278,7 @@ function parseArrayLike(delim, ctr, inp) {
     var inner = parseRestPatterns(inp2)
     var len = arrayLen(inner);
 
-    var withIndex = inner.reduce(function(acc, p, i, arr) {
+    var withIndex = inner.reduce((acc, p, i, arr) -> {
       var ann = {}, pann, stop, node;
       if (p.node.value.isRest) {
         if (i === 0) {
@@ -326,9 +321,7 @@ function parseObjectLike(ctr, inp) {
 function parseUnapplyObj(inp) {
   var res = parseObjectLike(UnapplyObj, inp);
   if (res) {
-    res.branches.forEach(function(b) {
-      b.node.ann.hasOwn = true;
-    });
+    res.branches.forEach(b -> b.node.ann.hasOwn = true);
     return res;
   }
 }
@@ -417,7 +410,7 @@ function commaSeparated(parser, inp, cb) {
 function multiRestCallback() {
   var count = 0;
   return function(res, inp) {
-    return res.unapply(function(v, ann) {
+    return res.unapply((v, ann) -> {
       if (v.tag === 'Rest' && count++) {
         syntaxError(ann.stx, 'Multiple ...s are not allowed');
       }
@@ -427,7 +420,7 @@ function multiRestCallback() {
 }
 
 function arrayLen(bs) {
-  var ctr = bs.reduce(function(ctr, b) {
+  var ctr = bs.reduce((ctr, b) -> {
     return b.node.value.isRest
       ? [LenMin, ctr[1]]
       : [ctr[0], ctr[1] + 1]

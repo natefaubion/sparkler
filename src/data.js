@@ -4,20 +4,15 @@ function Data(t, args) {
 }
 
 Data.prototype = {
-  unapply: function(f) {
-    return f ? f.apply(null, this.args) : this.args.slice();
-  },
-  equals: function(that) {
-    return equalsTag.call(this, that)
-        && this.args.every(function(a, i) { return equals(a, that.args[i]) });
-  }
+  unapply : f    -> f ? f.apply(null, this.args) : this.args.slice(),
+  equals  : that -> equalsTag.call(this, that) && arrayEquals(this.args, that.args)
 };
 
 function data(t, fs, proto) {
-  var D = function(){};
+  var D = () -> {};
   D.prototype = Data.prototype;
 
-  var Ctr = function(args) {
+  var Ctr = args -> {
     Data.call(this, t, args);
   };
 
@@ -26,21 +21,19 @@ function data(t, fs, proto) {
   Ctr.prototype['is' + t] = true;
   extend(Ctr.prototype, proto || {});
 
-  fs.forEach(function(f, i) {
+  fs.forEach((f, i) -> {
     Object.defineProperty(Ctr.prototype, f, {
       writeable: false,
       configurable: false,
-      get: function() {
-        return this.args[i];
-      }
+      get: () -> this.args[i]
     });
   });
 
   var arity = fs.length;
-  return arity === 0 ? function() { return new Ctr([]) }
-       : arity === 1 ? function(x) { return new Ctr([x]) }
-       : arity === 2 ? function(x, y) { return new Ctr([x, y]) }
-       : function() {
+  return arity === 0 ? () -> new Ctr([])
+       : arity === 1 ? (x) -> new Ctr([x])
+       : arity === 2 ? (x, y) -> new Ctr([x, y])
+       : () -> {
            var args = Array(arguments.length);
            for (var i = 0; i < arguments.length; i++) {
              args[i] = arguments[i];

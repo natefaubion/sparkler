@@ -118,9 +118,7 @@ function extend(o) {
 }
 
 function constant(x) {
-  return function() {
-    return x;
-  };
+  return () -> x;
 }
 
 function assert(cond, msg) {
@@ -140,9 +138,7 @@ function repeat(len, f) {
 
 function join(j, arr) {
   if (!arr.length) return [];
-  return arr.reduce(function(a, b) {
-    return a.concat(j, b);
-  });
+  return arr.reduce((a, b) -> a.concat(j, b));
 }
 
 function matchesToken(tmpl, t) {

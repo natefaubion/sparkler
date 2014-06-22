@@ -3,8 +3,8 @@ function compile(ast) {
 }
 
 function astToTree(ast) {
-  var cases = ast.branches.map(function(b) { return [annotateLevels(b.branches[0], 0)] });
-  var frame = ast.branches.map(function(b) { return [b.branches[1]] });
+  var cases = ast.branches.map(b -> [annotateLevels(b.branches[0], 0)]);
+  var frame = ast.branches.map(b -> [b.branches[1]]);
   var gr = groupRows(cases, [frame]);
   return Branch(ast.node, [transformCase(gr[0].node, gr[0].matrix, gr[0].stack)]);
 }
@@ -12,9 +12,7 @@ function astToTree(ast) {
 function annotateLevels(ast, l) {
   ast.node.ann.level = l;
   if (ast.branches) {
-    ast.branches.forEach(function(b) {
-      annotateLevels(b, l + 1);
-    });
+    ast.branches.forEach(b -> annotateLevels(b, l + 1));
   }
   return ast;
 }
@@ -56,7 +54,7 @@ function groupRows(m, stack) {
                    head[0].branches ? [head[0].branches] : [],
                    rowHeadStack(head, stackRow(stack, 0)));
 
-  return rest.reduce(function(acc, r, i) {
+  return rest.reduce((acc, r, i) -> {
     var g = acc[0];
     var c = r[0];
     if (!acc[1].length && canGroupCases(head[0], c)) {
@@ -72,7 +70,7 @@ function groupRows(m, stack) {
 }
 
 function mergeBranches(bs) {
-  return bs.reduceRight(function(acc, c) {
+  return bs.reduceRight((acc, c) -> {
     if (acc.length && acc[0].node.equals(c.node)) {
       acc[0] = Branch(mergeNodes(c.node, acc[0].node),
                       c.branches.concat(acc[0].branches));
@@ -84,7 +82,7 @@ function mergeBranches(bs) {
 }
 
 function mergeBranchesWithBacktrack(bs) {
-  return bs.reduceRight(function(acc, c, i) {
+  return bs.reduceRight((acc, c, i) -> {
     var head = acc[0];
     if (head && c.node.equals(head.node)) {
       acc[0] = Branch(mergeNodes(c.node, head.node),
@@ -139,8 +137,8 @@ var normalize = {
   UnapplyObj : normalizeObj,
   Len        : normalizeNoop,
   LenMin     : normalizeNoop,
-  Args: function(n, m) {
-    var max = Math.max.apply(null, m.map(function(r) { return r.length }));
+  Args: (n, m) -> {
+    var max = Math.max.apply(null, m.map(r -> r.length));
     return normalizeVarLen(max, Arg, m)
   }
 };
@@ -150,16 +148,16 @@ function normalizeNoop(n, m) {
 }
 
 function normalizeObj(n, m) {
-  var layout = m.reduceRight(function(acc, r) {
-    return r.reduce(function(a, c) {
+  var layout = m.reduceRight((acc, r) -> {
+    return r.reduce((a, c) -> {
       a[0][0].keys[c.node.value.key] = true;
       a[1][c.node.value.key] = true;
       return a;
     }, [[{ keys: {}, row: r }].concat(acc[0]), acc[1]]);
   }, [[], {}]);
 
-  return layout[0].map(function(r) {
-    Object.keys(layout[1]).forEach(function(k) {
+  return layout[0].map(r -> {
+    Object.keys(layout[1]).forEach(k -> {
       if (!r.keys[k]) r.row.push(Leaf(Ann(KeyNoop(k), {})));
     });
     return r.row.sort(sortObjKeys);
@@ -167,11 +165,11 @@ function normalizeObj(n, m) {
 }
 
 function normalizeVarLen(len, ctr, m) {
-  return m.map(function(r) {
+  return m.map(r -> {
     if (r.length >= len) {
       return r;
     } else {
-      return r.concat(repeat(len - r.length, function(i) {
+      return r.concat(repeat(len - r.length, i -> {
         return Leaf(Ann(ctr(r.length - i + 1), {}));
       }));
     }
@@ -185,10 +183,7 @@ function sortObjKeys(a, b) {
 }
 
 function scoreMatrix(m) {
-  var scores = m.map(function(c) {
-    return c.map(scorePattern);
-  });
-
+  var scores = m.map(c -> c.map(scorePattern));
   var ranks = [];
   for (var i = 0; i < scores[0].length; i++) {
     var s = 0;
@@ -206,12 +201,7 @@ function scoreMatrix(m) {
       }
     }
   }
-
-  return m.map(function(c) {
-    return ranks.map(function(r) {
-      return c[r[1]];
-    });
-  });
+  return m.map(c -> ranks.map(r -> c[r[1]]));
 }
 
 function scorePattern(p) {
@@ -232,17 +222,13 @@ var score = {
 };
 
 function stackRow(stack, i) {
-  return stack.map(function(f) {
-    return [f[i]];
-  });
+  return stack.map(m -> [m[i]]);
 }
 
 function stackZip(s1, s2) {
   if (!s1.length) return s2;
   if (!s2.length) return s1;
-  return s1.map(function(f, i) {
-    return f.concat(s2[i]);
-  });
+  return s1.map((m, i) -> m.concat(s2[i]));
 }
 
 function compilePattern(t, env, stack) {
@@ -251,15 +237,15 @@ function compilePattern(t, env, stack) {
   if (t.isBranch) {
     var c = branchCompilers[n.value.tag] || assert(false, 'Unexpected node: ' + n.value.tag);
     var r = stack[stack.length - 1];
-    var cont = function(e, r2) {
+    var cont = (e, r2) -> {
       var s = stack.concat([r2 || r]);
-      return bs.reduce(function(stx, b, i) {
+      return bs.reduce((stx, b, i) -> {
         var l = b.node.ann.level;
         return stx.concat(compilePattern(b, e, s.slice(0, l)));
       }, []);
     };
     if (n.ann.idents && n.ann.idents.length) {
-      env = n.ann.idents.reduce(function(e, id) {
+      env = n.ann.idents.reduce((e, id) -> {
         return e.stash(unwrapSyntax(id), r);
       }, env);
     }
@@ -271,11 +257,9 @@ function compilePattern(t, env, stack) {
 }
 
 var branchCompilers = {
-  Fun: function(len, ann, _, env, cont) {
+  Fun: (len, ann, _, env, cont) -> {
     var env2 = env.set({
-      argIdents: repeat(len, function(i) {
-        return [makeIdent('a' + i, here)];
-      })
+      argIdents: repeat(len, i -> [makeIdent('a' + i, here)])
     });
 
     letstx $name = unwrapSyntax(fnName) === 'anonymous' ? [] : fnName,
@@ -293,9 +277,9 @@ var branchCompilers = {
       }
     }
   },
-  Match: function(len, ann, _, env, cont) {
+  Match: (len, ann, _, env, cont) -> {
     var bref = makeRef();
-    var args = matchArgs.reduce(function(acc, a) {
+    var args = matchArgs.reduce((acc, a) -> {
       if (a.length === 1 && a[0].token.type === T.Identifier) {
         acc[0].push(a);
       } else {
@@ -320,24 +304,24 @@ var branchCompilers = {
     }
   },
   Args: compileNoop,
-  Arg: function(i, ann, _, env, cont) {
+  Arg: (i, ann, _, env, cont) -> {
     return cont(env, env.argIdents[i]);
   },
-  Unit: function(ann, _, env, cont) {
+  Unit: (ann, _, env, cont) -> {
     letstx $bod = cont(env);
     return #{
       if (arguments.length === 0) { $bod }
     }
   },
   Wild: compileNoop,
-  Undef: function(ann, ref, env, cont) {
+  Undef: (ann, ref, env, cont) -> {
     letstx $ref = ref,
            $bod = cont(env);
     return #{
       if ($ref === void 0) { $bod }
     }
   },
-  Lit: function(v, ann, ref, env, cont) {
+  Lit: (v, ann, ref, env, cont) -> {
     letstx $ref = ref,
            $lit = ann.stx,
            $bod = cont(env);
@@ -346,7 +330,7 @@ var branchCompilers = {
     }
   },
   Extractor: compileNoop,
-  Inst: function(ann, ref, env, cont) {
+  Inst: (ann, ref, env, cont) -> {
     if (natives.hasOwnProperty(ann.name)) {
       letstx $test = natives[ann.name](ref, env),
              $bod = cont(env);
@@ -364,7 +348,7 @@ var branchCompilers = {
       }
     }
   },
-  Unapply: function(ann, ref, env, cont) {
+  Unapply: (ann, ref, env, cont) -> {
     var ref2 = makeRef();
     letstx $ref = ref,
            $new = ref2,
@@ -375,7 +359,7 @@ var branchCompilers = {
       if ($new != null) { $bod }
     }
   },
-  UnapplyObj: function(ann, ref, env, cont) {
+  UnapplyObj: (ann, ref, env, cont) -> {
     var ref2 = makeRef();
     letstx $ref = ref,
            $new = ref2,
@@ -386,14 +370,14 @@ var branchCompilers = {
       if ($new != null) { $bod }
     }
   },
-  Arr: function(ann, ref, env, cont) {
+  Arr: (ann, ref, env, cont) -> {
     letstx $test = natives.Array(ref, env),
            $bod = cont(env, ref);
     return #{
       if ($test) { $bod }
     }
   },
-  Len: function(len, ann, ref, env, cont) {
+  Len: (len, ann, ref, env, cont) -> {
     letstx $len = [makeValue(len, here)],
            $ref = ref,
            $bod = cont(env);
@@ -401,7 +385,7 @@ var branchCompilers = {
       if ($ref.length === $len) { $bod }
     }
   },
-  LenMin: function(len, ann, ref, env, cont) {
+  LenMin: (len, ann, ref, env, cont) -> {
     letstx $len = [makeValue(len, here)],
            $ref = ref,
            $bod = cont(env);
@@ -409,7 +393,7 @@ var branchCompilers = {
       if ($ref.length >= $len) { $bod }
     }
   },
-  Index: function(i, ann, ref, env, cont, bs) {
+  Index: (i, ann, ref, env, cont, bs) -> {
     var index = i >= 0
       ? [makeValue(i, here)]
       : ref.concat(makePunc('.', here),
@@ -436,7 +420,7 @@ var branchCompilers = {
     }
   },
   IndexNoop: compileNoop,
-  Obj: function(ann, ref, env, cont) {
+  Obj: (ann, ref, env, cont) -> {
     var ref2 = makeRef();
     letstx $ref = ref,
            $new = ref2,
@@ -448,7 +432,7 @@ var branchCompilers = {
       }
     }
   },
-  KeyIn: function(key, ann, ref, env, cont) {
+  KeyIn: (key, ann, ref, env, cont) -> {
     letstx $ref = ref,
            $key = [makeValue(key, here)],
            $bod = cont(env);
@@ -462,7 +446,7 @@ var branchCompilers = {
       }
     }
   },
-  KeyVal: function(key, ann, ref, env, cont, bs) {
+  KeyVal: (key, ann, ref, env, cont, bs) -> {
     if (bs.length === 1 && bs[0].node.value.isWild) {
       if (!bs[0].node.ann.idents || !bs[0].node.ann.idents.length) {
         return cont(env);
@@ -482,8 +466,8 @@ var branchCompilers = {
     }
   },
   KeyNoop: compileNoop,
-  Rest: function(pattern, names, ann, ref, env, cont) {
-    var refs = ann.stashed.reduce(function(acc, id) {
+  Rest: (pattern, names, ann, ref, env, cont) -> {
+    var refs = ann.stashed.reduce((acc, id) -> {
       var k = unwrapSyntax(id.ident);
       if (!acc[2].hasOwnProperty(k)) {
         acc[0].push(id);
@@ -495,7 +479,7 @@ var branchCompilers = {
 
     var init = refs[1].length
       ? [makeKeyword('var', here)].concat(
-          join(makePunc(',', here), refs[1].map(function(r) {
+          join(makePunc(',', here), refs[1].map(r -> {
             return r.concat(makePunc('=', here), makeDelim('[]', [], here));
           })),
           makePunc(';', here))
@@ -521,7 +505,7 @@ var branchCompilers = {
     var t = transformCase(g.node, g.matrix, g.stack, 1);
     var s = compilePattern(t, environment({ refs: {} }), [void 0, lref]);
 
-    var env2 = ann.stashed.reduce(function(e, id, i) {
+    var env2 = ann.stashed.reduce((e, id, i) -> {
       return e.stash(unwrapSyntax(id.ident), refs[1][i]);
     }, env);
 
@@ -547,8 +531,8 @@ var branchCompilers = {
       if ($oref) { $bod }
     }
   },
-  Guard: function(ann, _, env, cont) {
-    var names = ann.stashed.reduce(function(acc, id) {
+  Guard: (ann, _, env, cont) -> {
+    var names = ann.stashed.reduce((acc, id) -> {
       var k = unwrapSyntax(id.ident);
       acc[k] = env.retrieve(k);
       return acc;
@@ -560,7 +544,7 @@ var branchCompilers = {
       if ($test) { $bod }
     }
   },
-  Backtrack: function(ann, _, env, cont) {
+  Backtrack: (ann, _, env, cont) -> {
     letstx $bod = cont(env),
            $ref = env.backtrackRef;
     return #{
@@ -570,8 +554,8 @@ var branchCompilers = {
 };
 
 var leafCompilers = {
-  Body: function(ann, env) {
-    var refs = join([], ann.stashed.map(function(id) {
+  Body: (ann, env) -> {
+    var refs = join([], ann.stashed.map(id -> {
       return makeAssign(id.keyword, id.ident, env.retrieve(unwrapSyntax(id.ident)));
     }));
 
@@ -589,8 +573,8 @@ var leafCompilers = {
       }
     }
   },
-  RestEnd: function(ann, env) {
-    var refs = join([], ann.stashed.map(function(id, i) {
+  RestEnd: (ann, env) -> {
+    var refs = join([], ann.stashed.map((id, i) -> {
       letstx $arr = ann.refs[i],
              $ref = env.retrieve(unwrapSyntax(id.ident));
       return #{
@@ -604,7 +588,7 @@ var leafCompilers = {
       continue;
     }
   },
-  NoMatch: function(ann, env) {
+  NoMatch: (ann, env) -> {
     return #{
       throw new TypeError('No match');
     }
@@ -627,13 +611,13 @@ var natives = {
   Math      : objTag('Math'),
   Object    : objTag('Object'),
 
-  Array: function(ref, env) {
+  Array: (ref, env) -> {
     letstx $ref = ref;
     return #{ Array.isArray
               ? Array.isArray($ref)
               : Object.prototype.toString.call($ref) === '[object Array]' };
   },
-  NaN: function(ref, env) {
+  NaN: (ref, env) -> {
     letstx $ref = ref;
     return #{ Number.isNaN
               ? Number.isNaN($ref)
@@ -642,7 +626,7 @@ var natives = {
 }
 
 function typeofAndObjTag(type, tag) {
-  return function(ref, env) {
+  return (ref, env) -> {
     letstx $type = [makeValue(type, here)],
            $str = [makeValue('[object ' + tag + ']', here)],
            $ref = ref;
@@ -652,7 +636,7 @@ function typeofAndObjTag(type, tag) {
 }
 
 function objTag(tag) {
-  return function(ref, env) {
+  return (ref, env) -> {
     letstx $str = [makeValue('[object ' + tag + ']', here)],
            $ref = ref;
     return #{ Object.prototype.toString.call($ref) === $str };

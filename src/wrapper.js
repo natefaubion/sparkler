@@ -1,3 +1,18 @@
+macro (->) {
+  rule infix { $a:ident | { $body ... } } => {
+    function($a) { $body ... }
+  }
+  rule infix { ($a:ident (,) ...) | { $body ... } } => {
+    function($a (,) ...) { $body ... }
+  }
+  rule infix { $a:ident | $body:expr } => {
+    function($a) { return $body }
+  }
+  rule infix { ($a:ident (,) ...) | $body:expr } => {
+    function($a (,) ...) { return $body }
+  }
+}
+
 macro $sparkler__compile {
   case { $$mac $ctx $name ($args ...) { $body ... } } => {
     var ctx = #{ $ctx };
