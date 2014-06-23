@@ -1,3 +1,9 @@
+## 0.3.3 (2014-6-22)
+
+* Fixed bug with function calls in guards
+* Fixed `match` case ordering.
+* Updated for Sweet.js 0.6.1
+
 ## 0.3.2 (2014-6-18)
 
 * Fixed bug with backtracking in match statements

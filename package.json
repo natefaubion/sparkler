@@ -1,6 +1,6 @@
 {
   "name": "sparkler",
-  "version": "0.3.2",
+  "version": "0.3.3",
   "description": "Native pattern matching for JavaScript",
   "scripts": {
     "test": "grunt test"
@@ -24,7 +24,7 @@
   "readmeFilename": "README.md",
   "devDependencies": {
     "grunt": "~0.4.1",
-    "sweet.js": "~0.6.0",
+    "sweet.js": "~0.6.1",
     "chai": "~1.8.0",
     "grunt-mocha-test": "~0.7.0"
   }
