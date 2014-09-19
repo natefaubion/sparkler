@@ -269,11 +269,11 @@ var branchCompilers = {
     if (matchArgs.length) {
       letstx $params = join(makePunc(',', here), matchArgs);
       return #{
-        function $name ($args) { $code }.call(this, $params)
+        function $star $name ($args) { $code }.call(this, $params)
       }
     } else {
       return #{
-        function $name ($args) { $code }
+        function $star $name ($args) { $code }
       }
     }
   },

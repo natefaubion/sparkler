@@ -13,8 +13,8 @@ macro (->) {
   }
 }
 
-macro $sparkler__compile {
-  case { $$mac $ctx $name ($args ...) { $body ... } } => {
+macro compile {
+  case { $$mac $ctx $star:star $name ($args ...) { $body ... } } => {
     var ctx = #{ $ctx };
     var here = #{ here };
     var fnName = #{ $name };
@@ -33,15 +33,20 @@ macro $sparkler__compile {
   }
 }
 
+macro star {
+  rule { * }
+  rule {}
+}
+
 let function = macro {
-  case { $ctx $name:ident { $body ... } } => {
+  case { $ctx $star:star $name:ident { $body ... } } => {
     return #{
-      $sparkler__compile $ctx $name () { $body ... }
+      compile $ctx $star $name () { $body ... }
     };
   }
-  case { $ctx { $body ... } } => {
+  case { $ctx $star:star { $body ... } } => {
     return #{
-      $sparkler__compile $ctx anonymous () { $body ... }
+      compile $ctx $star anonymous () { $body ... }
     }
   }
   case { _ } => {
@@ -52,17 +57,17 @@ let function = macro {
 let match = macro {
   case { $ctx ($op:expr, $rest:expr (,) ...) { $body ... } } => {
     return #{
-      $sparkler__compile $ctx anonymous (($op) $(($rest)) ...) { $body ... }
+      compile $ctx anonymous (($op) $(($rest)) ...) { $body ... }
     }
   }
   case { $ctx ($op:expr) { $body ... } } => {
     return #{
-      $sparkler__compile $ctx anonymous (($op)) { $body ... }
+      compile $ctx anonymous (($op)) { $body ... }
     }
   }
   case { $ctx $op:expr { $body ... } } => {
     return #{
-      $sparkler__compile $ctx anonymous (($op)) { $body ... }
+      compile $ctx anonymous (($op)) { $body ... }
     }
   }
   case { _ } => {
