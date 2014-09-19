@@ -1,3 +1,7 @@
+## 0.3.4 (2014-9-18)
+
+* Added support for generator functions
+
 ## 0.3.3 (2014-6-22)
 
 * Fixed bug with function calls in guards

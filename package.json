@@ -1,6 +1,6 @@
 {
   "name": "sparkler",
-  "version": "0.3.3",
+  "version": "0.3.4",
   "description": "Native pattern matching for JavaScript",
   "scripts": {
     "test": "grunt test"
