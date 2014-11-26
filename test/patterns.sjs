@@ -525,4 +525,12 @@ describe 'Case patterns' {
     }
     test 'success' { go(1) === true }
   }
+
+  it 'should match empty arrays' {
+    function go {
+      [] => true,
+      *  => false
+    }
+    test 'success' { go([]) }
+  }
 }

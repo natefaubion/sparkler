@@ -616,7 +616,8 @@ macro compile {
           }
           return [stop, acc[1].concat(Branch(node, [p]))];
         }, [0, []]);
-        return Branch(Ann(ctr(), {}), [Branch(len, withIndex[1])]);
+        return Branch(Ann(ctr(), {}),
+                      [inner.length ? Branch(len, withIndex[1]) : Leaf(len)]);
       }
     }
     function parseArray(inp) {
