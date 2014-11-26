@@ -1,3 +1,7 @@
+## 0.3.5 (2014-11-25)
+
+* Fix matching empty arrays (#18)
+
 ## 0.3.4 (2014-9-18)
 
 * Added support for generator functions
