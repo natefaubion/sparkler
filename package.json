@@ -27,5 +27,6 @@
     "sweet.js": "~0.6.1",
     "chai": "~1.8.0",
     "grunt-mocha-test": "~0.7.0"
-  }
+  },
+  "main": "macros/index.js"
 }
